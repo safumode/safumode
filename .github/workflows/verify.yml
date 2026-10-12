@@ -17,6 +17,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - run: npm run operator:drill
       - uses: browser-actions/setup-chrome@v2
       - run: npm run test:e2e:ui
       - run: npm run build
