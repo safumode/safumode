@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="SAFUMODE — a defensive vault interface concept for BNB." />
+  <meta name="theme-color" content="#0a0b0d" />
+  <title>SAFUMODE — Defensive custody for BNB</title>
+  <link rel="icon" href="safumode-mark.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="SAFUMODE home">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span>SAFU<b>MODE</b></span>
+    </a>
+    <nav aria-label="Primary navigation">
+      <a href="#architecture">Architecture</a>
+      <a href="#recovery">Recovery</a>
+      <a href="#principles">Principles</a>
+    </nav>
+    <a class="text-button" href="#prototype">Explore prototype <span aria-hidden="true">↘</span></a>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="eyebrow"><span class="pulse"></span> Defensive vault concept · BNB Chain</div>
+      <h1>Keep control.<br><em>Contain exposure.</em></h1>
+      <p class="lede">A vault concept where your everyday wallet can fund a vault but cannot authorize its withdrawals. Separate signing and recovery authorities control the exit.</p>
+      <div class="hero-actions">
+        <a class="primary" href="#architecture">See the protection model <span aria-hidden="true">→</span></a>
+        <button class="quiet" type="button" data-open-dialog>Read before exploring</button>
+      </div>
+      <div class="orbit" aria-hidden="true">
+        <div class="orbit-ring ring-one"></div><div class="orbit-ring ring-two"></div>
+        <div class="core"><span>VAULT</span><b>01</b></div>
+        <div class="node node-a">FUNDING WALLET<small>Deposit</small></div>
+        <div class="node node-b">AUTHORIZER<small>Signs exits</small></div>
+        <div class="node node-c">RECOVERY KEY<small>Can cancel</small></div>
+      </div>
+      <div class="scroll-note">SCROLL TO TRACE THE SYSTEM <span>↓</span></div>
+    </section>
+
+    <section class="statement" id="architecture">
+      <div class="section-index">01 / THE BOUNDARY</div>
+      <div>
+        <h2>One vault.<br>Two different authorities.</h2>
+        <p>Your <strong>everyday wallet</strong> can fund and relay transactions, but cannot authorize withdrawals. A separate <strong>authorizer</strong> signs withdrawal requests; an independent recovery signer can cancel pending exits. The current contract is an unaudited prototype.</p>
+      </div>
+    </section>
+
+    <section class="key-grid" aria-label="Key roles">
+      <article class="key-card owner-card">
+        <div class="card-top"><span>01</span><span class="status">OFFLINE BY DEFAULT</span></div>
+        <div class="key-icon owner-icon" aria-hidden="true"><span></span></div>
+        <h3>Funding wallet</h3>
+        <p class="role">THE EVERYDAY WALLET</p>
+        <ul>
+          <li>Deposits assets</li><li>Relays transactions</li><li>Cannot authorize vault withdrawals</li>
+        </ul>
+        <p class="card-note">Keep only daily-use funds outside the vault.</p>
+      </article>
+      <div class="separation"><span>CRYPTographic separation</span><i></i></div>
+      <article class="key-card spend-card">
+        <div class="card-top"><span>02</span><span class="status warm">BOUNDED ACCESS</span></div>
+        <div class="key-icon spend-icon" aria-hidden="true"><span></span></div>
+        <h3>Withdrawal authorizer</h3>
+        <p class="role">SEPARATE SIGNING AUTHORITY</p>
+        <ul>
+          <li>Signs withdrawal requests</li><li>Untrusted exits wait</li><li>Cannot alone add a trusted recipient</li>
+        </ul>
+        <p class="card-note">Keep separate from the funding wallet.</p>
+      </article>
+    </section>
+
+    <section class="recovery" id="recovery">
+      <div class="recovery-copy">
+        <div class="section-index">02 / TRUSTED RECOVERY</div>
+        <h2>Delay the exits that matter.</h2>
+        <p>Withdrawals to untrusted addresses wait for the configured delay. The recovery signer can cancel a pending exit. Adding a trusted recipient requires both signatures and delayed activation; a recovery transfer to the fixed recovery recipient is immediate. Monitoring is not implemented in this prototype.</p>
+        <div class="legend"><span><i class="dot active"></i>Active</span><span><i class="dot wait"></i>Delay</span><span><i class="dot future"></i>Available</span></div>
+      </div>
+      <div class="timeline" aria-label="Example recovery timeline">
+        <div class="timeline-head"><span>UNTRUSTED WITHDRAWAL</span><span>ILLUSTRATIVE UX</span></div>
+        <div class="step complete"><b>1</b><div><strong>Withdrawal scheduled</strong><small>Separate authorizer signs a destination and amount</small></div><time>START</time></div>
+        <div class="step current"><b>2</b><div><strong>Configured delay</strong><small>Recovery signer can cancel before execution</small><div class="progress"><i></i></div></div><time>WAIT</time></div>
+        <div class="step"><b>3</b><div><strong>Executable if not cancelled</strong><small>Anyone can relay the queued withdrawal</small></div><time>LATER</time></div>
+        <div class="warning"><span aria-hidden="true">◇</span><p><strong>Important exception.</strong> A recovery transfer to the fixed recovery recipient is immediate; this timeline does not apply to it.</p></div>
+      </div>
+    </section>
+
+    <section class="prototype" id="prototype">
+      <div class="section-index">03 / INTERFACE STUDY</div>
+      <div class="prototype-head"><h2>Policy, at a glance.</h2><p>A static demonstration of how a vault could communicate authority and recovery state without requesting a wallet connection.</p></div>
+      <div class="console">
+        <div class="console-nav"><span class="mini-brand"><i></i>SAFUMODE</span><span class="demo-label">INTERFACE PREVIEW · NO WALLET CONNECTION</span></div>
+        <div class="console-body">
+          <aside aria-label="Prototype sections"><button class="selected" data-panel="overview">Overview</button><button data-panel="keys">Key roles</button><button data-panel="recipients">Recipients</button><button data-panel="activity">Activity</button></aside>
+          <div class="panel" id="panel" aria-live="polite"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="principles" id="principles">
+      <div class="section-index">04 / DESIGN PRINCIPLES</div>
+      <div class="principle-grid">
+        <article><span>01</span><h3>Least authority</h3><p>Every key receives only the permissions it needs.</p></article>
+        <article><span>02</span><h3>Time to react</h3><p>Untrusted withdrawals wait; the fixed-destination recovery transfer does not.</p></article>
+        <article><span>03</span><h3>Readable state</h3><p>Roles, limits, and pending actions stay explicit.</p></article>
+      </div>
+    </section>
+  </main>
+
+  <footer><div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>SAFU<b>MODE</b></span></div><p>Defensive vault interface concept for BNB Chain.<br>This prototype is informational and does not connect to a wallet or execute transactions.</p><span>© 2026 · CONCEPT 01</span></footer>
+
+  <dialog id="notice"><button class="dialog-close" type="button" aria-label="Close">×</button><span class="dialog-kicker">PROTOTYPE NOTICE</span><h2>Explore without connecting.</h2><p>This is a static product concept. It does not request keys, connect to a wallet, sign messages, move assets, or execute blockchain transactions.</p><button class="primary" type="button" data-close-dialog>Understood</button></dialog>
+</body>
+</html>

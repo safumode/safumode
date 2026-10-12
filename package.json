@@ -1,0 +1,19 @@
+{
+  "name": "bnb-authorization-vault-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local EVM vault security prototype; not production ready",
+  "scripts": {
+    "dev": "node web/dev.js",
+    "build": "node web/build.js",
+    "compile": "hardhat compile",
+    "test": "hardhat test"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
+    "@nomicfoundation/hardhat-ethers": "^3.0.0",
+    "chai": "^4.5.0",
+    "ethers": "^6.13.0",
+    "hardhat": "^2.22.17"
+  }
+}

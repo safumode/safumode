@@ -1,0 +1,13 @@
+node_modules/
+artifacts/
+cache/
+coverage/
+.env*
+!.env.example
+.npm-cache/
+dist/
+.DS_Store
+*.pem
+*.key
+*.keystore
+*.log
