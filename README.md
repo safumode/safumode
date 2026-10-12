@@ -93,7 +93,7 @@ This is a prototype release, not a security product:
 
 - no professional audit, formal verification, bug bounty, or production hardening;
 - no mainnet/testnet deployment, public verified artifact, or pinned UI manifest (only local test-chain manifest tooling);
-- no transaction-building/signing UI, relayer, indexer, alerting, continuous monitoring, or incident-response service;
+- no transaction-building/signing UI, relayer, indexer, managed alerting, continuous monitoring, or incident-response service (the provider-only CLI monitor has a bounded local replay spool, not guaranteed downstream delivery);
 - no upgrade or mutable administrator path; constructor choices (including delay and recovery recipient) are permanent;
 - rotation requires both surviving current authorities and cannot recover a lost authority;
 - recovery authority remains powerful because it can immediately move funds to the fixed recovery recipient;

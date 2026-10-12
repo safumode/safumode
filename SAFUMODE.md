@@ -20,6 +20,7 @@ npm run safumode -- \
   --code-hash 0xEXPECTED_64_HEX_RUNTIME_CODE_HASH \
   --start-block DEPLOYMENT_BLOCK \
   --checkpoint /var/lib/safumode/vault.checkpoint.json \
+  --spool /var/lib/safumode/vault.alerts.json \
   --confirmations 12 --poll-ms 5000 --batch-size 500 --reorg-depth 128
 ```
 
@@ -27,12 +28,13 @@ Use `npm run safumode -- --help` for options. `--once` performs one catch-up sca
 
 ## Delivery, restart, and reorg behavior
 
-* Standard output is the delivery boundary. Each JSONL alert write must complete successfully before that block is checkpointed; pipe backpressure and write errors are honored. This provides **at-least-once process-to-pipe delivery**, not durable end-to-end delivery. A crash after writing an alert but before checkpoint rename can repeat it. A downstream consumer can also lose an already acknowledged line.
-* For durable operations, pipe stdout into a separate durable spool/journal that acknowledges writes only after durable storage. Deduplicate by `(blockHash, transactionHash, logIndex)`. Do not treat a terminal display or an unpersisted network pipe as a durable sink.
+* Before stdout or checkpoint advancement, each alert is placed in a local `0600` spool using fsync plus atomic rename (default `CHECKPOINT.alerts.json`). Pending records replay first on restart. Output remains one JSON object per line, and backpressure/write errors are honored.
+* A spool record is acknowledged and removed only after Node's stdout write callback succeeds. **This is a local process-to-stream acknowledgement, not a claim that a pipe reader, network destination, pager, or human durably received the alert.** A crash around output/checkpoint/ack transitions can repeat a line, so consumers must deduplicate vault events by `(blockHash, transactionHash, logIndex)`.
+* The spool is bound to chain ID, checksummed vault address, and runtime code hash; a mismatch fails closed. It rejects symlinks/non-regular files, is capped at 10,000 records and 16 MiB by default (`--spool-max-bytes`), and stops rather than dropping alerts when full. Put spool and checkpoint on reliable local storage with adequate capacity. This is not a multi-process queue: run only one monitor per fileset.
 * Checkpoints are mode `0600`, fsynced, and atomically renamed. They retain `--reorg-depth` hashes. A mismatch emits critical `rpc_reorg`, rewinds to the newest retained common ancestor, and rescans. Replacement-chain alerts may intentionally repeat a logical action.
 * Startup and each poll verify chain ID and the pinned runtime code hash. Keep the checkpoint on reliable local storage and alert on process exit/stderr.
 * SIGINT/SIGTERM stop polling cleanly after the current awaited RPC/write operation. No new block is started after shutdown is observed.
 
 ## Verification
 
-`npm run test:safumode` uses an ephemeral Hardhat chain. In addition to normal alert/restart and chain mismatch coverage, deterministic fault providers test omitted logs, a header/log reorg race, output failure, retry-after-restart, and invalid future startup/checkpoint state.
+`npm run test:safumode` uses an ephemeral Hardhat chain. In addition to normal alert/restart and chain mismatch coverage, deterministic fault injection tests omitted logs, a header/log reorg race, crash after durable enqueue, output and replay-output failure, restart replay, spool bounds/symlink refusal, and invalid future startup/checkpoint state.

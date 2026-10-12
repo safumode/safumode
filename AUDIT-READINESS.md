@@ -16,7 +16,7 @@ Status: **UNAUDITED, NOT DEPLOYED, NO REAL FUNDS.** This is an original EVM prot
 - `npm run test:manifest` — local manifest generation/verification integration tests, including wrong-chain, wrong-code, wrong-parameter, and wrong-build rejection.
 - `npm run operator:drill` — deterministic local-chain offline-sign/local-relay lifecycle with generated development keys; not a real key-custody drill. CI runs this alongside the tests.
 - `npm run build` — static site.
-- The monitor cross-checks queried logs against receipts and now rejects a receipt belonging to another transaction in the same block. Checkpointed stdout is not durable downstream delivery; a crashed or disconnected alert consumer can still miss an alert. Production needs an acknowledged durable alert queue/spool and a tested on-call response before treating monitoring as a safeguard.
+- The monitor cross-checks queried logs against receipts and rejects a receipt belonging to another transaction in the same block. Alerts are fsynced to a bounded, identity-bound local spool before checkpoint advancement and pending records replay after restart. Removal after a successful stdout callback acknowledges only the local stream write: it does not prove downstream durable receipt, paging, or human response, and duplicates remain possible. Production still needs an independently acknowledged delivery system and tested on-call response before treating monitoring as a safeguard.
 - Independent agent review identified and prompted fixes to rotation stale-signature/queue behavior, absent veto, active trust persistence, misleading UI identity claims. This **is not an independent security audit**.
 
 ## Release blockers (not optional polish)

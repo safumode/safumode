@@ -45,6 +45,10 @@ async function rejectedRun(options, provider, out = new Capture()) {
   try { await new Monitor(options, provider, out).run(); } catch (e) { return e; }
   throw new Error("expected monitor failure");
 }
+async function rejectedRunWithFaults(options, provider, out, faults) {
+  try { await new Monitor(options, provider, out, faults).run(); } catch (e) { return e; }
+  throw new Error("expected monitor failure");
+}
 
 describe("SAFUMODE monitor e2e (ephemeral Hardhat chain)", function () {
   it("alerts, resumes without duplicates, and fails closed on chain mismatch", async function () {
@@ -83,8 +87,45 @@ describe("SAFUMODE monitor e2e (ephemeral Hardhat chain)", function () {
     const f = await fixture(9, 93); const broken = { write(_s, cb) { cb(new Error("sink failed")); return false; } };
     const error = await rejectedRun(f.options, ethers.provider, broken); expect(error.message).to.equal("sink failed");
     expect(JSON.parse(fs.readFileSync(f.checkpoint)).nextBlock).to.equal(f.eventBlock);
+    expect(JSON.parse(fs.readFileSync(`${f.checkpoint}.alerts.json`)).pending).to.have.length(1);
     const capture = new Capture(); await new Monitor(f.options, ethers.provider, capture).run();
-    expect(capture.records().some((r) => r.event === "WithdrawalScheduled")).to.equal(true); fs.rmSync(f.dir, { recursive: true, force: true });
+    expect(capture.records().some((r) => r.event === "WithdrawalScheduled")).to.equal(true);
+    expect(JSON.parse(fs.readFileSync(`${f.checkpoint}.alerts.json`)).pending).to.deep.equal([]); fs.rmSync(f.dir, { recursive: true, force: true });
+  });
+
+  it("fsyncs an alert before an injected crash and replays it on restart", async function () {
+    const f = await fixture(19, 96); let injected = false;
+    const crash = { afterSpool() { if (!injected) { injected = true; throw new Error("injected crash"); } } };
+    const error = await rejectedRunWithFaults(f.options, ethers.provider, new Capture(), crash);
+    expect(error.message).to.equal("injected crash");
+    expect(JSON.parse(fs.readFileSync(f.checkpoint)).nextBlock).to.equal(f.eventBlock);
+    const stored = JSON.parse(fs.readFileSync(`${f.checkpoint}.alerts.json`)); expect(stored.pending).to.have.length(1);
+    expect(stored.pending[0].record.event).to.equal("WithdrawalScheduled");
+    const replay = new Capture(); await new Monitor(f.options, ethers.provider, replay).run();
+    expect(replay.records()[0].event).to.equal("WithdrawalScheduled"); fs.rmSync(f.dir, { recursive: true, force: true });
+  });
+
+  it("retains a replay record when restarted output fails", async function () {
+    const f = await fixture(20, 97); const fail = { write(_s, cb) { cb(new Error("first output down")); return false; } };
+    await rejectedRun(f.options, ethers.provider, fail);
+    const failAgain = { write(_s, cb) { cb(new Error("replay output down")); return false; } };
+    const error = await rejectedRun(f.options, ethers.provider, failAgain); expect(error.message).to.equal("replay output down");
+    expect(JSON.parse(fs.readFileSync(`${f.checkpoint}.alerts.json`)).pending).to.have.length(1);
+    const recovered = new Capture(); await new Monitor(f.options, ethers.provider, recovered).run();
+    expect(recovered.records()[0].event).to.equal("WithdrawalScheduled"); fs.rmSync(f.dir, { recursive: true, force: true });
+  });
+
+  it("binds and bounds the spool and refuses symlinks", async function () {
+    const f = await fixture(21, 98); await new Monitor(f.options, ethers.provider, new Capture()).run();
+    const spoolFile = `${f.checkpoint}.alerts.json`, spool = JSON.parse(fs.readFileSync(spoolFile));
+    fs.writeFileSync(spoolFile, JSON.stringify({ ...spool, identity: { ...spool.identity, chainId: "56" } }));
+    let error = await rejectedRun(f.options, ethers.provider); expect(error.message).to.match(/identity mismatch/);
+    fs.writeFileSync(spoolFile, JSON.stringify(spool));
+    const linked = path.join(f.dir, "linked-spool.json"); fs.symlinkSync(spoolFile, linked);
+    error = await rejectedRun({ ...f.options, spool: linked }, ethers.provider); expect(error.message).to.match(/not a symlink/);
+    fs.writeFileSync(spoolFile, "x".repeat(2048));
+    error = await rejectedRun({ ...f.options, spoolMaxBytes: 1024 }, ethers.provider); expect(error.message).to.match(/size limit/);
+    fs.rmSync(f.dir, { recursive: true, force: true });
   });
 
   it("rejects future starts and future checkpoints", async function () {

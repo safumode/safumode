@@ -22,10 +22,13 @@ const iface = new Interface(ABI);
 const topics = ABI.map((x) => iface.getEvent(x.slice(6, x.indexOf("("))).topicHash);
 const topicSet = new Set(topics.map((x) => x.toLowerCase()));
 const json = (v) => JSON.stringify(v, (_, x) => typeof x === "bigint" ? x.toString() : x);
+const DEFAULT_SPOOL_MAX_BYTES = 16 * 1024 * 1024;
+const MAX_SPOOL_RECORDS = 10000;
 function fatal(message) { const e = new Error(message); e.safumode = true; throw e; }
 
-async function emit(out, type, fields = {}) {
-  const line = json({ safumode: 1, type, ...fields }) + "\n";
+async function emit(out, type, fields = {}) { return writeRecord(out, { safumode: 1, type, ...fields }); }
+async function writeRecord(out, record) {
+  const line = json(record) + "\n";
   await new Promise((resolve, reject) => {
     let settled = false;
     const done = (error) => { if (settled) return; settled = true; error ? reject(error) : resolve(); };
@@ -46,7 +49,7 @@ function parseArgs(argv) {
     const key = arg.slice(2);
     if (Object.prototype.hasOwnProperty.call(values, key)) fatal(`duplicate option: --${key}`);
     if (flags.has(key)) values[key] = true;
-    else if (["rpc", "address", "chain-id", "code-hash", "checkpoint", "start-block", "confirmations", "poll-ms", "batch-size", "reorg-depth"].includes(key)) {
+    else if (["rpc", "address", "chain-id", "code-hash", "checkpoint", "spool", "spool-max-bytes", "start-block", "confirmations", "poll-ms", "batch-size", "reorg-depth"].includes(key)) {
       if (!argv[i + 1] || argv[i + 1].startsWith("--")) fatal(`missing value for --${key}`);
       values[key] = argv[++i];
     } else fatal(`unknown option: --${key}`);
@@ -56,6 +59,7 @@ function parseArgs(argv) {
 function usage() {
   return `Usage: node scripts/safumode-monitor.js --rpc URL --chain-id ID --address ADDRESS --code-hash 0xHASH [options]\n\n` +
     `Requires a trusted archival RPC capable of complete blocks, receipts, and logs.\n\nOptions:\n  --checkpoint FILE       State file (default .safumode-checkpoint.json)\n` +
+    `  --spool FILE            Durable pending-alert file (default CHECKPOINT.alerts.json)\n  --spool-max-bytes N     Maximum serialized spool size (default 16777216)\n` +
     `  --start-block N         First block for a new checkpoint (default latest + 1)\n  --confirmations N       Confirmation lag (default 1)\n` +
     `  --poll-ms N             Poll interval (default 5000)\n  --batch-size N          Maximum blocks per poll (default 500)\n` +
     `  --reorg-depth N         Retained block-hash window (default 128)\n  --once                  Scan available blocks and exit\n`;
@@ -74,7 +78,11 @@ function argsObject(parsed) {
   if (!/^https?:$/.test(rpc.protocol)) fatal("--rpc must use http or https");
   const codeHash = parsed["code-hash"].toLowerCase();
   if (!/^0x[0-9a-f]{64}$/.test(codeHash)) fatal("invalid --code-hash");
-  return { rpc: parsed.rpc, address, expectedChainId, codeHash, checkpoint: parsed.checkpoint || ".safumode-checkpoint.json",
+  const checkpoint = parsed.checkpoint || ".safumode-checkpoint.json";
+  const spool = parsed.spool || `${checkpoint}.alerts.json`;
+  if (path.resolve(spool) === path.resolve(checkpoint)) fatal("--spool and --checkpoint must be different files");
+  return { rpc: parsed.rpc, address, expectedChainId, codeHash, checkpoint,
+    spool, spoolMaxBytes: integer(parsed["spool-max-bytes"], "spool-max-bytes", DEFAULT_SPOOL_MAX_BYTES, 1024),
     startBlock: parsed["start-block"] === undefined ? null : integer(parsed["start-block"], "start-block", 0),
     confirmations: integer(parsed.confirmations, "confirmations", 1), pollMs: integer(parsed["poll-ms"], "poll-ms", 5000, 50),
     batchSize: integer(parsed["batch-size"], "batch-size", 500, 1), reorgDepth: integer(parsed["reorg-depth"], "reorg-depth", 128, 2), once: !!parsed.once };
@@ -85,6 +93,37 @@ function atomicSave(file, state) {
   try { fs.writeFileSync(fd, json(state) + "\n"); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
   fs.renameSync(tmp, file);
   try { const dir = fs.openSync(path.dirname(path.resolve(file)), "r"); try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); } } catch (_) {}
+}
+function assertSafeFile(file, label) {
+  if (!fs.existsSync(file)) return;
+  const stat = fs.lstatSync(file);
+  if (!stat.isFile() || stat.isSymbolicLink()) fatal(`${label} must be a regular file, not a symlink`);
+}
+class AlertSpool {
+  constructor(file, identity, maxBytes = DEFAULT_SPOOL_MAX_BYTES) { this.file = file; this.identity = identity; this.maxBytes = maxBytes; this.state = null; }
+  open() {
+    assertSafeFile(this.file, "alert spool");
+    if (fs.existsSync(this.file)) {
+      if (fs.statSync(this.file).size > this.maxBytes) fatal("alert spool exceeds configured size limit");
+      try { this.state = JSON.parse(fs.readFileSync(this.file, "utf8")); } catch (_) { fatal("alert spool is unreadable or invalid"); }
+      if (!this.state || this.state.version !== 1 || json(this.state.identity) !== json(this.identity) || !Array.isArray(this.state.pending)) fatal("alert spool has invalid schema or configuration identity mismatch");
+      if (this.state.pending.length > MAX_SPOOL_RECORDS || this.state.pending.some((x) => !x || typeof x.id !== "string" || !x.record || x.record.safumode !== 1)) fatal("alert spool has invalid pending records");
+      fs.chmodSync(this.file, 0o600);
+    } else { this.state = { version: 1, identity: this.identity, pending: [] }; this.save(); }
+  }
+  save(candidate = this.state) {
+    assertSafeFile(this.file, "alert spool");
+    if (Buffer.byteLength(json(candidate) + "\n") > this.maxBytes) fatal("alert spool size limit reached; operator action required");
+    atomicSave(this.file, candidate); fs.chmodSync(this.file, 0o600);
+  }
+  enqueue(id, record) {
+    if (this.state.pending.some((x) => x.id === id)) return;
+    if (this.state.pending.length >= MAX_SPOOL_RECORDS) fatal("alert spool record limit reached; operator action required");
+    const candidate = { ...this.state, pending: [...this.state.pending, { id, record }] }; this.save(candidate); this.state = candidate;
+  }
+  acknowledge(id) {
+    const candidate = { ...this.state, pending: this.state.pending.filter((x) => x.id !== id) }; this.save(candidate); this.state = candidate;
+  }
 }
 function loadState(file) {
   if (!fs.existsSync(file)) return null;
@@ -101,8 +140,10 @@ function loadState(file) {
 function logKey(log) { return `${log.blockHash.toLowerCase()}:${log.transactionHash.toLowerCase()}:${log.index}`; }
 
 class Monitor {
-  constructor(options, provider = null, out = process.stdout) {
-    this.o = options; this.provider = provider || new JsonRpcProvider(options.rpc, undefined, { staticNetwork: false }); this.out = out; this.state = null; this.stopped = false; this.wake = null;
+  constructor(options, provider = null, out = process.stdout, faults = {}) {
+    this.o = options; this.provider = provider || new JsonRpcProvider(options.rpc, undefined, { staticNetwork: false }); this.out = out; this.state = null; this.stopped = false; this.wake = null; this.faults = faults;
+    const identity = { chainId: options.expectedChainId.toString(), address: options.address, codeHash: options.codeHash };
+    this.spool = new AlertSpool(options.spool || `${options.checkpoint}.alerts.json`, identity, options.spoolMaxBytes || DEFAULT_SPOOL_MAX_BYTES);
   }
   stop() { this.stopped = true; if (this.wake) this.wake(); }
   async verify() {
@@ -112,7 +153,7 @@ class Monitor {
     if (keccak256(code).toLowerCase() !== this.o.codeHash) fatal(`contract code hash mismatch at ${this.o.address}`);
   }
   async initialize() {
-    await this.verify(); const latest = await this.provider.getBlockNumber(); this.state = loadState(this.o.checkpoint);
+    await this.verify(); const latest = await this.provider.getBlockNumber(); this.state = loadState(this.o.checkpoint); this.spool.open();
     if (this.state) {
       if (this.state.chainId !== this.o.expectedChainId.toString() || this.state.address !== this.o.address || this.state.codeHash !== this.o.codeHash) fatal("checkpoint configuration mismatch");
       if (this.state.nextBlock > latest + 1) fatal("checkpoint is ahead of RPC head");
@@ -125,7 +166,18 @@ class Monitor {
       this.state = { version: 1, chainId: this.o.expectedChainId.toString(), address: this.o.address, codeHash: this.o.codeHash, nextBlock, hashes };
       atomicSave(this.o.checkpoint, this.state);
     }
-    await this.checkReorg();
+    await this.replayPending(); await this.checkReorg();
+  }
+  async replayPending() {
+    for (const item of [...this.spool.state.pending]) { await writeRecord(this.out, item.record); this.spool.acknowledge(item.id); }
+  }
+  async durableAlert(id, type, fields) {
+    const record = { safumode: 1, type, ...fields }; this.spool.enqueue(id, record);
+    if (this.faults.afterSpool) await this.faults.afterSpool(id, record);
+    await writeRecord(this.out, record);
+    // This acknowledgement means stdout accepted the write only. It is not an
+    // assertion that a downstream consumer or on-call system received it.
+    this.spool.acknowledge(id);
   }
   async checkReorg() {
     if (!this.state.hashes.length) return;
@@ -136,7 +188,7 @@ class Monitor {
     }
     if (ancestor === this.state.hashes.length - 1) return;
     const rewindTo = ancestor < 0 ? Math.max(0, this.state.nextBlock - this.o.reorgDepth) : this.state.hashes[ancestor].number + 1;
-    await emit(this.out, "rpc_reorg", { severity: "critical", previousNextBlock: this.state.nextBlock, rewindTo });
+    await this.durableAlert(`reorg:${this.state.nextBlock}:${rewindTo}`, "rpc_reorg", { severity: "critical", previousNextBlock: this.state.nextBlock, rewindTo });
     if (ancestor < 0) fatal("reorg exceeds retained checkpoint history; operator intervention required");
     this.state.hashes = this.state.hashes.slice(0, ancestor + 1); this.state.nextBlock = rewindTo; atomicSave(this.o.checkpoint, this.state);
   }
@@ -169,7 +221,7 @@ class Monitor {
       for (const log of logs) {
         let parsed; try { parsed = iface.parseLog(log); } catch (_) { fatal("received undecodable monitored event"); }
         const args = {}; parsed.fragment.inputs.forEach((input, i) => { args[input.name] = parsed.args[i]; });
-        await emit(this.out, "vault_event", { severity: "critical", event: parsed.name, chainId: this.o.expectedChainId, address: this.o.address, blockNumber: log.blockNumber, blockHash: log.blockHash, transactionHash: log.transactionHash, logIndex: log.index, args });
+        await this.durableAlert(`log:${logKey(log)}`, "vault_event", { severity: "critical", event: parsed.name, chainId: this.o.expectedChainId, address: this.o.address, blockNumber: log.blockNumber, blockHash: log.blockHash, transactionHash: log.transactionHash, logIndex: log.index, args });
       }
       this.state.hashes.push({ number, hash: block.hash }); if (this.state.hashes.length > this.o.reorgDepth) this.state.hashes.shift();
       this.state.nextBlock = number + 1; atomicSave(this.o.checkpoint, this.state); processed++;
@@ -197,4 +249,4 @@ async function main() {
   try { await monitor.run(); } finally { process.removeListener("SIGINT", stop); process.removeListener("SIGTERM", stop); monitor.provider.destroy(); }
 }
 if (require.main === module) main().catch(async (e) => { try { await emit(process.stderr, "monitor_failure", { severity: "critical", error: e.safumode ? e.message : "RPC or internal monitoring failure" }); } finally { process.exitCode = 1; } });
-module.exports = { Monitor, parseArgs, argsObject, iface };
+module.exports = { Monitor, AlertSpool, parseArgs, argsObject, iface };
