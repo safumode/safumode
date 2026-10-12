@@ -49,7 +49,7 @@ function parseArgs(argv) {
     const key = arg.slice(2);
     if (Object.prototype.hasOwnProperty.call(values, key)) fatal(`duplicate option: --${key}`);
     if (flags.has(key)) values[key] = true;
-    else if (["rpc", "address", "chain-id", "code-hash", "checkpoint", "spool", "spool-max-bytes", "start-block", "confirmations", "poll-ms", "batch-size", "reorg-depth"].includes(key)) {
+    else if (["rpc", "address", "chain-id", "code-hash", "checkpoint", "spool", "journal", "spool-max-bytes", "start-block", "confirmations", "poll-ms", "batch-size", "reorg-depth"].includes(key)) {
       if (!argv[i + 1] || argv[i + 1].startsWith("--")) fatal(`missing value for --${key}`);
       values[key] = argv[++i];
     } else fatal(`unknown option: --${key}`);
@@ -59,7 +59,7 @@ function parseArgs(argv) {
 function usage() {
   return `Usage: node scripts/safumode-monitor.js --rpc URL --chain-id ID --address ADDRESS --code-hash 0xHASH [options]\n\n` +
     `Requires a trusted archival RPC capable of complete blocks, receipts, and logs.\n\nOptions:\n  --checkpoint FILE       State file (default .safumode-checkpoint.json)\n` +
-    `  --spool FILE            Durable pending-alert file (default CHECKPOINT.alerts.json)\n  --spool-max-bytes N     Maximum serialized spool size (default 16777216)\n` +
+    `  --spool FILE            Durable pending-alert file (default CHECKPOINT.alerts.json)\n  --journal FILE          Append-only delivered-alert journal (default CHECKPOINT.alerts.jsonl)\n  --spool-max-bytes N     Maximum serialized spool size (default 16777216)\n` +
     `  --start-block N         First block for a new checkpoint (default latest + 1)\n  --confirmations N       Confirmation lag (default 1)\n` +
     `  --poll-ms N             Poll interval (default 5000)\n  --batch-size N          Maximum blocks per poll (default 500)\n` +
     `  --reorg-depth N         Retained block-hash window (default 128)\n  --once                  Scan available blocks and exit\n`;
@@ -80,9 +80,11 @@ function argsObject(parsed) {
   if (!/^0x[0-9a-f]{64}$/.test(codeHash)) fatal("invalid --code-hash");
   const checkpoint = parsed.checkpoint || ".safumode-checkpoint.json";
   const spool = parsed.spool || `${checkpoint}.alerts.json`;
-  if (path.resolve(spool) === path.resolve(checkpoint)) fatal("--spool and --checkpoint must be different files");
+  const journal = parsed.journal || `${checkpoint}.alerts.jsonl`;
+  const files = [checkpoint, spool, journal].map((x) => path.resolve(x));
+  if (new Set(files).size !== files.length) fatal("--checkpoint, --spool and --journal must be different files");
   return { rpc: parsed.rpc, address, expectedChainId, codeHash, checkpoint,
-    spool, spoolMaxBytes: integer(parsed["spool-max-bytes"], "spool-max-bytes", DEFAULT_SPOOL_MAX_BYTES, 1024),
+    spool, journal, spoolMaxBytes: integer(parsed["spool-max-bytes"], "spool-max-bytes", DEFAULT_SPOOL_MAX_BYTES, 1024),
     startBlock: parsed["start-block"] === undefined ? null : integer(parsed["start-block"], "start-block", 0),
     confirmations: integer(parsed.confirmations, "confirmations", 1), pollMs: integer(parsed["poll-ms"], "poll-ms", 5000, 50),
     batchSize: integer(parsed["batch-size"], "batch-size", 500, 1), reorgDepth: integer(parsed["reorg-depth"], "reorg-depth", 128, 2), once: !!parsed.once };
@@ -92,7 +94,7 @@ function atomicSave(file, state) {
   const tmp = `${file}.${process.pid}.tmp`; const fd = fs.openSync(tmp, "w", 0o600);
   try { fs.writeFileSync(fd, json(state) + "\n"); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
   fs.renameSync(tmp, file);
-  try { const dir = fs.openSync(path.dirname(path.resolve(file)), "r"); try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); } } catch (_) {}
+  const dir = fs.openSync(path.dirname(path.resolve(file)), "r"); try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
 }
 function assertSafeFile(file, label) {
   if (!fs.existsSync(file)) return;
@@ -107,7 +109,12 @@ class AlertSpool {
       if (fs.statSync(this.file).size > this.maxBytes) fatal("alert spool exceeds configured size limit");
       try { this.state = JSON.parse(fs.readFileSync(this.file, "utf8")); } catch (_) { fatal("alert spool is unreadable or invalid"); }
       if (!this.state || this.state.version !== 1 || json(this.state.identity) !== json(this.identity) || !Array.isArray(this.state.pending)) fatal("alert spool has invalid schema or configuration identity mismatch");
-      if (this.state.pending.length > MAX_SPOOL_RECORDS || this.state.pending.some((x) => !x || typeof x.id !== "string" || !x.record || x.record.safumode !== 1)) fatal("alert spool has invalid pending records");
+      const ids = new Set(); let invalid = this.state.pending.length > MAX_SPOOL_RECORDS;
+      for (const item of this.state.pending) {
+        if (!item || typeof item.id !== "string" || !item.id || !item.record || item.record.safumode !== 1 || ids.has(item.id)) { invalid = true; break; }
+        ids.add(item.id);
+      }
+      if (invalid) fatal("alert spool has invalid or duplicate pending records");
       fs.chmodSync(this.file, 0o600);
     } else { this.state = { version: 1, identity: this.identity, pending: [] }; this.save(); }
   }
@@ -117,12 +124,57 @@ class AlertSpool {
     atomicSave(this.file, candidate); fs.chmodSync(this.file, 0o600);
   }
   enqueue(id, record) {
-    if (this.state.pending.some((x) => x.id === id)) return;
+    const existing = this.state.pending.find((x) => x.id === id);
+    if (existing) {
+      if (json(existing.record) !== json(record)) fatal("alert spool ID conflicts with an existing record");
+      return;
+    }
     if (this.state.pending.length >= MAX_SPOOL_RECORDS) fatal("alert spool record limit reached; operator action required");
     const candidate = { ...this.state, pending: [...this.state.pending, { id, record }] }; this.save(candidate); this.state = candidate;
   }
   acknowledge(id) {
     const candidate = { ...this.state, pending: this.state.pending.filter((x) => x.id !== id) }; this.save(candidate); this.state = candidate;
+  }
+}
+class AlertJournal {
+  constructor(file, identity, faults = {}) { this.file = file; this.identity = identity; this.records = new Map(); this.faults = faults; }
+  open() {
+    const dirName = path.dirname(path.resolve(this.file));
+    fs.mkdirSync(dirName, { recursive: true, mode: 0o700 });
+    assertSafeFile(this.file, "alert journal");
+    if (!fs.existsSync(this.file)) {
+      const fd = fs.openSync(this.file, "wx", 0o600);
+      try { fs.writeFileSync(fd, json({ safumodeJournal: 1, identity: this.identity }) + "\n"); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      const dir = fs.openSync(dirName, "r"); try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
+    }
+    assertSafeFile(this.file, "alert journal");
+    const lines = fs.readFileSync(this.file, "utf8").split("\n");
+    if (lines.pop() !== "") fatal("alert journal has an incomplete record");
+    let header;
+    try { header = JSON.parse(lines.shift()); } catch (_) { fatal("alert journal is unreadable or invalid"); }
+    if (!header || header.safumodeJournal !== 1 || json(header.identity) !== json(this.identity)) fatal("alert journal has invalid schema or configuration identity mismatch");
+    for (const line of lines) {
+      let item; try { item = JSON.parse(line); } catch (_) { fatal("alert journal is unreadable or invalid"); }
+      if (!item || typeof item.id !== "string" || !item.id || !item.record || item.record.safumode !== 1) fatal("alert journal has invalid records");
+      if (this.records.has(item.id) && json(this.records.get(item.id)) !== json(item.record)) fatal("alert journal contains a conflicting duplicate ID");
+      this.records.set(item.id, item.record);
+    }
+    fs.chmodSync(this.file, 0o600);
+  }
+  append(id, record) {
+    if (this.records.has(id)) {
+      if (json(this.records.get(id)) !== json(record)) fatal("alert journal ID conflicts with an existing record");
+      return;
+    }
+    assertSafeFile(this.file, "alert journal");
+    const nofollow = fs.constants.O_NOFOLLOW || 0;
+    const fd = fs.openSync(this.file, fs.constants.O_WRONLY | fs.constants.O_APPEND | nofollow);
+    try {
+      fs.writeFileSync(fd, json({ id, record }) + "\n");
+      if (this.faults.journalBeforeFsync) this.faults.journalBeforeFsync(id, record);
+      fs.fsyncSync(fd);
+    } finally { fs.closeSync(fd); }
+    this.records.set(id, record);
   }
 }
 function loadState(file) {
@@ -144,6 +196,7 @@ class Monitor {
     this.o = options; this.provider = provider || new JsonRpcProvider(options.rpc, undefined, { staticNetwork: false }); this.out = out; this.state = null; this.stopped = false; this.wake = null; this.faults = faults;
     const identity = { chainId: options.expectedChainId.toString(), address: options.address, codeHash: options.codeHash };
     this.spool = new AlertSpool(options.spool || `${options.checkpoint}.alerts.json`, identity, options.spoolMaxBytes || DEFAULT_SPOOL_MAX_BYTES);
+    this.journal = new AlertJournal(options.journal || `${options.checkpoint}.alerts.jsonl`, identity, faults);
   }
   stop() { this.stopped = true; if (this.wake) this.wake(); }
   async verify() {
@@ -153,7 +206,7 @@ class Monitor {
     if (keccak256(code).toLowerCase() !== this.o.codeHash) fatal(`contract code hash mismatch at ${this.o.address}`);
   }
   async initialize() {
-    await this.verify(); const latest = await this.provider.getBlockNumber(); this.state = loadState(this.o.checkpoint); this.spool.open();
+    await this.verify(); const latest = await this.provider.getBlockNumber(); this.state = loadState(this.o.checkpoint); this.spool.open(); this.journal.open();
     if (this.state) {
       if (this.state.chainId !== this.o.expectedChainId.toString() || this.state.address !== this.o.address || this.state.codeHash !== this.o.codeHash) fatal("checkpoint configuration mismatch");
       if (this.state.nextBlock > latest + 1) fatal("checkpoint is ahead of RPC head");
@@ -169,14 +222,19 @@ class Monitor {
     await this.replayPending(); await this.checkReorg();
   }
   async replayPending() {
-    for (const item of [...this.spool.state.pending]) { await writeRecord(this.out, item.record); this.spool.acknowledge(item.id); }
+    for (const item of [...this.spool.state.pending]) {
+      await writeRecord(this.out, item.record);
+      this.journal.append(item.id, item.record);
+      this.spool.acknowledge(item.id);
+    }
   }
   async durableAlert(id, type, fields) {
     const record = { safumode: 1, type, ...fields }; this.spool.enqueue(id, record);
     if (this.faults.afterSpool) await this.faults.afterSpool(id, record);
     await writeRecord(this.out, record);
-    // This acknowledgement means stdout accepted the write only. It is not an
-    // assertion that a downstream consumer or on-call system received it.
+    // Preserve a local durable copy before removing the retry copy. Stdout's
+    // callback does not mean a downstream consumer durably received the line.
+    this.journal.append(id, record);
     this.spool.acknowledge(id);
   }
   async checkReorg() {
@@ -249,4 +307,4 @@ async function main() {
   try { await monitor.run(); } finally { process.removeListener("SIGINT", stop); process.removeListener("SIGTERM", stop); monitor.provider.destroy(); }
 }
 if (require.main === module) main().catch(async (e) => { try { await emit(process.stderr, "monitor_failure", { severity: "critical", error: e.safumode ? e.message : "RPC or internal monitoring failure" }); } finally { process.exitCode = 1; } });
-module.exports = { Monitor, AlertSpool, parseArgs, argsObject, iface };
+module.exports = { Monitor, AlertSpool, AlertJournal, parseArgs, argsObject, iface };

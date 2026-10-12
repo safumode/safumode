@@ -105,6 +105,25 @@ describe("SAFUMODE monitor e2e (ephemeral Hardhat chain)", function () {
     expect(replay.records()[0].event).to.equal("WithdrawalScheduled"); fs.rmSync(f.dir, { recursive: true, force: true });
   });
 
+  it("does not checkpoint or discard the spool when journaling fails after stdout accepts", async function () {
+    const f = await fixture(23, 101); const accepted = new Capture(); let injected = false;
+    const failure = { journalBeforeFsync() { if (!injected) { injected = true; throw new Error("injected journal fsync failure"); } } };
+    const error = await rejectedRunWithFaults(f.options, ethers.provider, accepted, failure);
+    expect(error.message).to.equal("injected journal fsync failure");
+    expect(accepted.records().some((r) => r.event === "WithdrawalScheduled")).to.equal(true);
+    expect(JSON.parse(fs.readFileSync(f.checkpoint)).nextBlock).to.equal(f.eventBlock);
+    const pending = JSON.parse(fs.readFileSync(`${f.checkpoint}.alerts.json`)).pending;
+    expect(pending).to.have.length(1); expect(pending[0].record.event).to.equal("WithdrawalScheduled");
+
+    const restarted = new Capture(); await new Monitor(f.options, ethers.provider, restarted).run();
+    expect(restarted.records().some((r) => r.event === "WithdrawalScheduled")).to.equal(true);
+    expect(JSON.parse(fs.readFileSync(`${f.checkpoint}.alerts.json`)).pending).to.deep.equal([]);
+    const journal = fs.readFileSync(`${f.checkpoint}.alerts.jsonl`, "utf8").trim().split("\n").map(JSON.parse);
+    expect(journal.slice(1).filter((x) => x.record.event === "WithdrawalScheduled")).to.have.length(1);
+    expect(JSON.parse(fs.readFileSync(f.checkpoint)).nextBlock).to.be.greaterThan(f.eventBlock);
+    fs.rmSync(f.dir, { recursive: true, force: true });
+  });
+
   it("retains a replay record when restarted output fails", async function () {
     const f = await fixture(20, 97); const fail = { write(_s, cb) { cb(new Error("first output down")); return false; } };
     await rejectedRun(f.options, ethers.provider, fail);
@@ -125,6 +144,16 @@ describe("SAFUMODE monitor e2e (ephemeral Hardhat chain)", function () {
     error = await rejectedRun({ ...f.options, spool: linked }, ethers.provider); expect(error.message).to.match(/not a symlink/);
     fs.writeFileSync(spoolFile, "x".repeat(2048));
     error = await rejectedRun({ ...f.options, spoolMaxBytes: 1024 }, ethers.provider); expect(error.message).to.match(/size limit/);
+    fs.rmSync(f.dir, { recursive: true, force: true });
+  });
+
+  it("rejects duplicate pending spool IDs", async function () {
+    const f = await fixture(24, 102); await new Monitor(f.options, ethers.provider, new Capture()).run();
+    const spoolFile = `${f.checkpoint}.alerts.json`, spool = JSON.parse(fs.readFileSync(spoolFile));
+    const record = { safumode: 1, type: "vault_event" };
+    spool.pending = [{ id: "duplicate", record }, { id: "duplicate", record }];
+    fs.writeFileSync(spoolFile, JSON.stringify(spool));
+    const error = await rejectedRun(f.options, ethers.provider); expect(error.message).to.match(/duplicate pending records/);
     fs.rmSync(f.dir, { recursive: true, force: true });
   });
 
