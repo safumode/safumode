@@ -3,6 +3,7 @@
 const fs = require("fs");
 const { ethers } = require("ethers");
 const { canonical, digest, prepare, relay } = require("./safumode-tx");
+const { signWithLedger } = require("./safumode-ledger");
 const { lifecycle } = require("./safumode-lifecycle");
 
 const PREPARE_ACTIONS = "schedule|withdraw|recover|trust|cancel|pause|rotate|cancel-rotation";
@@ -31,6 +32,15 @@ async function main() {
     process.stdout.write(canonical(bundle));
     return;
   }
+  if (command === "sign-ledger") {
+    const bundle=jsonFile(a.bundle,"bundle");
+    if (!a.manifest) throw new Error("--manifest is required");
+    const rebuilt=prepare(a.manifest,bundle.action,{...bundle.message,...bundle.metadata},{version:bundle.domain && bundle.domain.version});
+    if (canonical(rebuilt)!==canonical(bundle)) throw new Error("bundle does not match pinned local deployment manifest");
+    const result=await signWithLedger(bundle,a.role,a.path);
+    process.stdout.write(canonical(result));
+    return;
+  }
   if (command === "relay") {
     const bundle=jsonFile(a.bundle,"bundle"), signatures=jsonFile(a.signatures,"signatures");
     if (!a.rpc) throw new Error("--rpc is required for chain/domain/nonce verification");
@@ -54,7 +64,7 @@ async function main() {
     process.stdout.write(canonical(result));
     return;
   }
-  throw new Error(`usage: safumode-cli.js prepare --manifest FILE --action ${PREPARE_ACTIONS} --input FILE [--version 1:N]\n       safumode-cli.js relay --manifest FILE --bundle FILE --signatures FILE --rpc URL [--broadcast --relayer ADDRESS --relayer-index N]\n       safumode-cli.js lifecycle --manifest FILE --rpc URL --action activate-trust --account ADDRESS --nonce N [--broadcast --relayer ADDRESS --relayer-index N]\n       safumode-cli.js lifecycle --manifest FILE --rpc URL --action execute-withdrawal --request-id BYTES32 [--broadcast --relayer ADDRESS --relayer-index N]\n       safumode-cli.js lifecycle --manifest FILE --rpc URL --action activate-rotation --nonce N [--broadcast --relayer ADDRESS --relayer-index N]`);
+  throw new Error(`usage: safumode-cli.js prepare --manifest FILE --action ${PREPARE_ACTIONS} --input FILE [--version 1:N]\n       safumode-cli.js sign-ledger --manifest FILE --bundle FILE --role authorizer|recoveryAuthorizer [--path 44'/60'/0'/0/0]\n       safumode-cli.js relay --manifest FILE --bundle FILE --signatures FILE --rpc URL [--broadcast --relayer ADDRESS --relayer-index N]\n       safumode-cli.js lifecycle --manifest FILE --rpc URL --action activate-trust --account ADDRESS --nonce N [--broadcast --relayer ADDRESS --relayer-index N]\n       safumode-cli.js lifecycle --manifest FILE --rpc URL --action execute-withdrawal --request-id BYTES32 [--broadcast --relayer ADDRESS --relayer-index N]\n       safumode-cli.js lifecycle --manifest FILE --rpc URL --action activate-rotation --nonce N [--broadcast --relayer ADDRESS --relayer-index N]`);
 }
 if (require.main === module) main().catch(e=>{ console.error(`SAFUMODE: ${e.message}`); process.exitCode=1; });
 module.exports = { args, main, relayerIndex, PREPARE_ACTIONS };

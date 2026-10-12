@@ -29,5 +29,9 @@
     "ethers": "^6.13.0",
     "hardhat": "^2.22.17",
     "puppeteer-core": "^24.43.1"
+  },
+  "dependencies": {
+    "@ledgerhq/hw-app-eth": "^7.10.0",
+    "@ledgerhq/hw-transport-node-hid": "^6.33.5"
   }
 }
