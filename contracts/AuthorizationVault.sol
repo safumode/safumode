@@ -114,7 +114,9 @@ contract AuthorizationVault {
             revert InvalidAddress();
         }
         if (authorizer_ == recoveryAuthorizer_) revert InvalidAddress();
-        if (delay_ == 0) revert InvalidDelay();
+        // Reject configurations whose delayed execution timestamps cannot be
+        // represented by the uint64 fields used in pending operations.
+        if (delay_ == 0 || block.timestamp > type(uint64).max - delay_) revert InvalidDelay();
         authorizer = authorizer_;
         recoveryAuthorizer = recoveryAuthorizer_;
         recoveryRecipient = recoveryRecipient_;
@@ -162,7 +164,7 @@ contract AuthorizationVault {
         _verify(authorizer, deadline, structHash, authorizerSignature);
         _verify(recoveryAuthorizer, deadline, structHash, recoverySignature);
         rotationNonce = nonce;
-        uint64 executableAt = uint64(block.timestamp) + delay;
+        uint64 executableAt = _delayedExecutionTime();
         pendingRotation = PendingRotation(newAuthorizer, newRecoveryAuthorizer, executableAt, nonce);
         emit RotationScheduled(newAuthorizer, newRecoveryAuthorizer, nonce, executableAt);
     }
@@ -201,7 +203,7 @@ contract AuthorizationVault {
         _verify(authorizer, deadline, structHash, authorizerSignature);
         _verify(recoveryAuthorizer, deadline, structHash, recoverySignature);
         trustNonce[account] = nonce;
-        uint64 executableAt = uint64(block.timestamp) + delay;
+        uint64 executableAt = _delayedExecutionTime();
         pendingTrust[account] = PendingTrust(executableAt, nonce);
         pendingTrustEpoch[account] = authorityEpoch;
         emit TrustScheduled(account, nonce, executableAt);
@@ -253,7 +255,7 @@ contract AuthorizationVault {
         _authorize(authorizer, authorizerNonceUsed, nonce, deadline, structHash, signature);
         requestId = keccak256(abi.encode(_domainSeparator(), structHash));
         if (requests[requestId].executableAt != 0) revert RequestExists();
-        uint64 executableAt = uint64(block.timestamp) + delay;
+        uint64 executableAt = _delayedExecutionTime();
         requests[requestId] = Request(asset, to, amount, executableAt, false, false);
         requestEpoch[requestId] = authorityEpoch;
         emit WithdrawalScheduled(requestId, asset, to, amount, executableAt);
@@ -391,5 +393,12 @@ contract AuthorizationVault {
         bytes memory out = new bytes(digits);
         while (value != 0) { out[--digits] = bytes1(uint8(48 + value % 10)); value /= 10; }
         return string(out);
+    }
+
+    function _delayedExecutionTime() private view returns (uint64) {
+        // Preserve a stable custom error if this deployment eventually reaches
+        // the end of the uint64 timestamp range.
+        if (block.timestamp > type(uint64).max - delay) revert InvalidDelay();
+        return uint64(block.timestamp) + delay;
     }
 }

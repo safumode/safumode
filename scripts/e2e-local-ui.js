@@ -189,6 +189,14 @@ async function main() {
     assert.match(recipientResult, /Trust nonce: 1/);
     assert.match(recipientResult, /No pending trust addition/);
 
+    await page.click('[data-panel="activity"]');
+    await page.click('#load-events');
+    await page.waitForFunction(() => document.querySelectorAll('#events-result .event-list li').length >= 3);
+    const eventNames = await page.$$eval('#events-result .event-list li strong', elements => elements.map(element => element.textContent));
+    assert.ok(eventNames.includes('NativeDeposited'), 'deposit event is visible in activity');
+    assert.ok(eventNames.includes('TrustScheduled'), 'trust schedule event is visible in activity');
+    assert.ok(eventNames.includes('TrustedSet'), 'trust activation event is visible in activity');
+
     await page.click('[data-panel="sign"]');
     assert.match(await page.$eval('#live-panel', el => el.textContent), /Signing is disabled even when a pinned deployment identity matches/);
     assert.equal(await page.$eval('#live-panel button', el => el.disabled), true);
@@ -211,8 +219,31 @@ async function main() {
     assert.equal(await unknownPage.$eval('#live-panel button', el => el.disabled), true);
     await unknownPage.close();
 
+    // Corrupt browser storage must not prevent the configuration UI from loading.
+    const corruptStoragePage = await browser.newPage();
+    await corruptStoragePage.goto(webUrl, { waitUntil: 'networkidle0' });
+    await corruptStoragePage.evaluate(() => localStorage.setItem('safumode-config', '{not-json'));
+    await corruptStoragePage.reload({ waitUntil: 'networkidle0' });
+    assert.equal(await corruptStoragePage.$eval('#configuration', element => element.hidden), false);
+    assert.equal(await corruptStoragePage.$eval('#vault-address', element => element.value), '');
+    await corruptStoragePage.close();
+
+    // Matching bytecode is not enough: pinned self-reported state also fails closed.
+    fixtureManifest.deployments[0].state.delay = '999';
+    fs.writeFileSync(fixturePath, JSON.stringify(fixtureManifest, null, 2));
+    const stateMismatchPage = await browser.newPage();
+    await stateMismatchPage.goto(webUrl, { waitUntil: 'networkidle0' });
+    await stateMismatchPage.$eval('#vault-address', (el, value) => { el.value = value; }, vaultAddress);
+    await stateMismatchPage.$eval('#chain-id', (el, value) => { el.value = value; }, CHAIN_ID.toString());
+    await stateMismatchPage.$eval('#rpc-url', (el, value) => { el.value = value; }, rpcUrl);
+    await stateMismatchPage.click('#load-rpc');
+    await stateMismatchPage.waitForFunction(() => document.querySelector('#config-error')?.textContent.includes('state mismatch: delay'));
+    assert.equal(await stateMismatchPage.$eval('#live-panel', el => el.hidden), true);
+    await stateMismatchPage.close();
+
     // A pinned address with any other runtime hash must fail closed rather than
     // quietly falling back to an unverified display.
+    fixtureManifest.deployments[0].state.delay = delay.toString();
     fixtureManifest.deployments[0].runtimeCodeHash = `0x${'00'.repeat(32)}`;
     fs.writeFileSync(fixturePath, JSON.stringify(fixtureManifest, null, 2));
     const mismatchPage = await browser.newPage();
@@ -229,7 +260,7 @@ async function main() {
     console.log('PASS local UI end-to-end integration');
     console.log(`  chain: ${network.chainId} (ephemeral Hardhat)`);
     console.log(`  vault: ${vaultAddress}`);
-    console.log('  asserted: pinned chain/address/code/state match, hash mismatch fail-closed, RPC warning, signing disabled, unknown address unverified');
+    console.log('  asserted: pinned identity, state/hash mismatch fail-closed, status/recipient/activity reads, corrupt-storage recovery, RPC warning, signing disabled, unknown address unverified');
   } catch (error) {
     if (node?.output()) console.error(`\nHardhat output:\n${node.output()}`);
     if (web?.output()) console.error(`\nWeb output:\n${web.output()}`);

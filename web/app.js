@@ -63,6 +63,15 @@ function assertPinnedState(pin, actual) {
 
 function errorText(error) { return error?.shortMessage || error?.reason || error?.message || String(error); }
 function setError(message='') { $('#config-error').textContent = message; }
+function savedConfig() {
+  try {
+    const value = JSON.parse(localStorage.getItem('safumode-config') || '{}');
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch (error) {
+    console.warn(`Ignoring invalid saved configuration: ${errorText(error)}`);
+    return {};
+  }
+}
 function config() { return { address:$('#vault-address').value.trim(), chainId:$('#chain-id').value.trim(), rpc:$('#rpc-url').value.trim() }; }
 function validateConfig(c) {
   if (!ethers.isAddress(c.address)) throw new Error('Enter a valid EVM vault address.');
@@ -96,7 +105,8 @@ async function load(source) {
     identity = { pinned:true, verified:true, codeHash, label:pin.label || 'Pinned deployment' };
   }
   state={provider,contract,address:normalizedAddress,chainId:network.chainId,source,data,identity,tab:'status'};
-  localStorage.setItem('safumode-config', JSON.stringify(c));
+  try { localStorage.setItem('safumode-config', JSON.stringify(c)); }
+  catch (error) { console.warn(`Configuration could not be saved: ${errorText(error)}`); }
   $('#configuration').hidden=true; $('#live-panel').hidden=false;
   $('#connection-label').textContent=`${identity.verified?'PINNED IDENTITY MATCH':'UNVERIFIED CONTRACT'} · CHAIN ${network.chainId} · READ ONLY`;
   document.querySelectorAll('[data-panel]').forEach(b=>b.classList.toggle('selected',b.dataset.panel==='status'));
@@ -124,5 +134,5 @@ document.querySelectorAll('[data-panel]').forEach(button=>button.addEventListene
 $('#load-rpc').onclick=()=>load('rpc').catch(e=>setError(errorText(e)));
 $('#load-wallet').onclick=()=>load('wallet').catch(e=>setError(errorText(e)));
 $('#clear-config').onclick=()=>{localStorage.removeItem('safumode-config');location.reload();};
-const saved=JSON.parse(localStorage.getItem('safumode-config')||'{}'); const params=new URLSearchParams(location.search); $('#vault-address').value=params.get('vault')||saved.address||'';$('#chain-id').value=params.get('chainId')||saved.chainId||'';$('#rpc-url').value=saved.rpc||'';
+const saved=savedConfig(); const params=new URLSearchParams(location.search); $('#vault-address').value=params.get('vault')||saved.address||'';$('#chain-id').value=params.get('chainId')||saved.chainId||'';$('#rpc-url').value=saved.rpc||'';
 const dialog=$('#notice');document.querySelector('[data-open-dialog]').addEventListener('click',()=>dialog.showModal());document.querySelectorAll('[data-close-dialog],.dialog-close').forEach(b=>b.addEventListener('click',()=>dialog.close()));dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.close();});

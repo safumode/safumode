@@ -9,7 +9,7 @@
   <link rel="icon" href="safumode-mark.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="styles.css" />
   <script src="ethers.min.js?v=6.17.0"></script>
-  <script src="app.js?v=3" defer></script>
+  <script src="app.js?v=4" defer></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -122,8 +122,8 @@
     </section>
   </main>
 
-  <footer><div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>SAFU<b>MODE</b></span></div><p>Unaudited educational prototype and unverified-contract preview. All signing is disabled.<br>No transaction relay, deposits, custody, monitoring service, pinned deployment, or mainnet deployment is provided.</p><span>© 2026 · PROTOTYPE 01</span></footer>
+  <footer><div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>SAFU<b>MODE</b></span></div><p>Unaudited educational prototype and read-only deployment verifier. All signing is disabled.<br>No transaction relay, deposits, custody, monitoring service, endorsed public deployment, or mainnet deployment is provided.</p><span>© 2026 · PROTOTYPE 01</span></footer>
 
-  <dialog id="notice"><button class="dialog-close" type="button" aria-label="Close">×</button><span class="dialog-kicker">SECURITY NOTICE</span><h2>Read-only and unverified.</h2><p>A user-supplied RPC can fabricate bytecode and interface responses, so this preview cannot prove contract identity. No deployment manifest or bytecode hash is independently pinned. All wallet-signing flows are disabled; do not treat displayed values as verification.</p><button class="primary" type="button" data-close-dialog>Understood</button></dialog>
+  <dialog id="notice"><button class="dialog-close" type="button" aria-label="Close">×</button><span class="dialog-kicker">SECURITY NOTICE</span><h2>Read-only verification.</h2><p>A user-supplied RPC can fabricate bytecode and interface responses. Known chain/address pairs are compared with the static allowlist bundled into this site, including runtime bytecode hash and expected state; unknown deployments remain explicitly unverified. A pin match is not consensus proof. All wallet-signing flows are disabled.</p><button class="primary" type="button" data-close-dialog>Understood</button></dialog>
 </body>
 </html>

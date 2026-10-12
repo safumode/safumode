@@ -92,8 +92,8 @@ The manifest pins chain ID, checksum address, actual runtime-code Keccak-256, no
 This is a prototype release, not a security product:
 
 - no professional audit, formal verification, bug bounty, or production hardening;
-- no mainnet/testnet deployment, public verified artifact, or pinned UI manifest (only local test-chain manifest tooling);
-- no transaction-building/signing UI, relayer, indexer, managed alerting, continuous monitoring, or incident-response service (the provider-only CLI monitor has a bounded local replay spool, not guaranteed downstream delivery);
+- no mainnet/testnet deployment or public verified artifact; the browser has an intentionally empty production deployment allowlist and does not endorse any address (local test-chain manifests are separate);
+- no browser transaction-building/signing UI, production relayer, indexer, managed alerting, continuous monitoring, or incident-response service; the offline preparation/local-only relay CLI and provider-only monitor with local spool/journal do not establish downstream notification;
 - no upgrade or mutable administrator path; constructor choices (including delay and recovery recipient) are permanent;
 - rotation requires both surviving current authorities and cannot recover a lost authority;
 - recovery authority remains powerful because it can immediately move funds to the fixed recovery recipient;
