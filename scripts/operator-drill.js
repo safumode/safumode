@@ -22,6 +22,8 @@ async function runOperatorDrill(options = {}) {
   const recoveryRecipient = ethers.Wallet.createRandom().address;
   const trustedRecipient = ethers.Wallet.createRandom().address;
   const untrustedRecipient = ethers.Wallet.createRandom().address;
+  const vetoedAuthorizer = ethers.Wallet.createRandom();
+  const vetoedRecoveryAuthorizer = ethers.Wallet.createRandom();
   const nextAuthorizer = ethers.Wallet.createRandom();
   const nextRecoveryAuthorizer = ethers.Wallet.createRandom();
   const delay = options.delay || 60;
@@ -113,16 +115,50 @@ async function runOperatorDrill(options = {}) {
   assert.equal(await ethers.provider.getBalance(recoveryRecipient), recoveryBefore + ethers.parseEther("1"));
   assert.equal(await ethers.provider.getBalance(vaultAddress), ethers.parseEther("8"));
 
+  // Rehearse the break-glass rotation veto as distinct operator steps: prepare
+  // offline, obtain one independent authority signature, then use the guarded
+  // loopback relay. The recovery authority can veto without the authorizer.
   await signAndRelay("rotate", {
-    authorizer: nextAuthorizer.address,
-    recoveryAuthorizer: nextRecoveryAuthorizer.address,
+    authorizer: vetoedAuthorizer.address,
+    recoveryAuthorizer: vetoedRecoveryAuthorizer.address,
     nonce: 1,
     deadline: await deadline(),
   });
   assert.equal((await vault.pendingRotation()).nonce, 1n);
+
+  const veto = prepare(manifest, "cancel-rotation", {
+    byRecovery: true,
+    nonce: 1,
+    deadline: await deadline(),
+  });
+  assert.deepEqual(Object.keys(veto.expectedSigners), ["recoveryAuthorizer"]);
+  const vetoSignature = await recoveryAuthorizer.signTypedData(veto.domain, veto.types, veto.message);
+  const vetoResult = await relay(
+    veto,
+    manifest,
+    { recoveryAuthorizer: vetoSignature },
+    ethers.provider,
+    relayer,
+    { rpcUrl: LOCAL_RPC, relayerAddress: await relayer.getAddress() },
+  );
+  assert.equal(vetoResult.dryRun, false);
+  assert.equal((await vault.pendingRotation()).executableAt, 0n);
+  assert.equal(await vault.rotationNonce(), 1n);
+  assert.equal(await vault.authorizer(), authorizer.address);
+  assert.equal(await vault.recoveryAuthorizer(), recoveryAuthorizer.address);
+
+  // The cancelled nonce is consumed. Schedule a fresh pair and activate it
+  // after the delay, proving normal rotation remains available after a veto.
+  await signAndRelay("rotate", {
+    authorizer: nextAuthorizer.address,
+    recoveryAuthorizer: nextRecoveryAuthorizer.address,
+    nonce: 2,
+    deadline: await deadline(),
+  });
+  assert.equal((await vault.pendingRotation()).nonce, 2n);
   await ethers.provider.send("evm_increaseTime", [delay]);
   await ethers.provider.send("evm_mine", []);
-  await (await vault.connect(relayer).activateRotation(1)).wait();
+  await (await vault.connect(relayer).activateRotation(2)).wait();
   assert.equal(await vault.authorizer(), nextAuthorizer.address);
   assert.equal(await vault.recoveryAuthorizer(), nextRecoveryAuthorizer.address);
   assert.equal(await vault.authorityEpoch(), 1n);
@@ -133,6 +169,11 @@ async function runOperatorDrill(options = {}) {
     vault: vaultAddress,
     relayer: await relayer.getAddress(),
     authorityEpoch: "1",
+    vetoedRotationNonce: "1",
+    activatedRotationNonce: "2",
+    vetoingAuthority: recoveryAuthorizer.address,
+    vetoUsedIndependentSignature: true,
+    vetoUsedGuardedLocalRelay: true,
     finalBalance: (await ethers.provider.getBalance(vaultAddress)).toString(),
     requestId,
     assertions: "passed",
