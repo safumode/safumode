@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="SAFUMODE is an unaudited, local-first study of separated vault authority and a read-only contract verifier." />
+  <meta name="description" content="SAFUMODE explores separated vault authority with a read-only contract verifier. Unaudited research; no endorsed public deployment." />
   <meta name="theme-color" content="#171714" />
   <title>SAFUMODE — Separate authority, visible limits</title>
   <link rel="icon" href="safumode-mark.svg" type="image/svg+xml" />
@@ -24,7 +24,7 @@
   <main id="main">
     <section class="hero" id="top">
       <div class="hero-copy">
-        <p class="overline"><span></span>Built for BNB Chain · local prototype</p>
+        <p class="overline"><span></span>Built for BNB Chain · separated authority</p>
         <h1>Put distance<br>between <em>use</em><br>and <em>authority.</em></h1>
         <p class="hero-lede">SAFUMODE explores a vault where the wallet that funds or relays an action does not hold the authority to approve an exit.</p>
         <div class="hero-links"><a class="button" href="#routing">Trace the two gates <span>↓</span></a><a class="text-link" href="#prototype">Open read-only verifier</a></div>
@@ -108,7 +108,7 @@
     </section>
   </main>
 
-  <footer><a class="brand" href="#top"><span class="brand-sigil" aria-hidden="true">守</span><span>SAFU<span>MODE</span></span></a><p><strong>Unaudited educational prototype.</strong><br>Local-only tooling. No endorsed public deployment. All browser signing is disabled.</p><p>BNB-adjacent authority research<br>Prototype 01 · 2026</p></footer>
+  <footer><a class="brand" href="#top"><span class="brand-sigil" aria-hidden="true">守</span><span>SAFU<span>MODE</span></span></a><p><strong>Unaudited research.</strong><br>Read-only tooling. No endorsed public deployment. All browser signing is disabled.</p><p>BNB Chain authority research<br>SAFUMODE · 2026</p></footer>
 
   <dialog id="notice"><button class="dialog-close" type="button" aria-label="Close">×</button><span class="dialog-kicker">SECURITY NOTICE / 守 <span class="sr-only">Guard</span></span><h2>Observe before you trust.</h2><p>This is unaudited, local-only software—not a custody product or endorsed deployment. A user-supplied RPC can fabricate bytecode and interface responses. Known chain/address pairs are compared with the static allowlist bundled into this site; unknown deployments remain explicitly unverified. A pin match is not consensus proof. All wallet-signing flows are disabled.</p><p>There is no administrator recovery: losing both authority keys can permanently prevent control, and loss of the fixed recovery recipient key can strand recovered assets.</p><button class="primary" type="button" data-close-dialog>Understood</button></dialog>
 </body>
