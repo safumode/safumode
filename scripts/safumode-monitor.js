@@ -101,6 +101,40 @@ function assertSafeFile(file, label) {
   const stat = fs.lstatSync(file);
   if (!stat.isFile() || stat.isSymbolicLink()) fatal(`${label} must be a regular file, not a symlink`);
 }
+class MonitorLock {
+  constructor(checkpoint) { this.file = `${path.resolve(checkpoint)}.lock`; this.fd = null; this.identity = null; }
+  acquire() {
+    const dirName = path.dirname(this.file);
+    fs.mkdirSync(dirName, { recursive: true, mode: 0o700 });
+    const nofollow = fs.constants.O_NOFOLLOW || 0;
+    try { this.fd = fs.openSync(this.file, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | nofollow, 0o600); }
+    catch (e) {
+      if (e && (e.code === "EEXIST" || e.code === "ELOOP")) fatal(`monitor lock already exists: ${this.file}; verify the previous monitor has stopped before manual removal`);
+      throw e;
+    }
+    try {
+      const stat = fs.fstatSync(this.fd);
+      if (!stat.isFile()) fatal("monitor lock is not a regular file");
+      this.identity = { dev: stat.dev, ino: stat.ino };
+      fs.writeFileSync(this.fd, json({ safumodeLock: 1, pid: process.pid, startedAt: new Date().toISOString(), checkpoint: path.resolve(this.file.slice(0, -5)) }) + "\n");
+      fs.fsyncSync(this.fd);
+      const dir = fs.openSync(dirName, "r"); try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
+    } catch (e) { this.release(); throw e; }
+  }
+  release() {
+    if (this.fd === null) return;
+    try {
+      // Remove only the directory entry that still names this owner's inode.
+      // A swapped path or symlink is left in place rather than deleted.
+      let stat = null;
+      try { stat = fs.lstatSync(this.file); } catch (e) { if (e.code !== "ENOENT") throw e; }
+      if (stat && !stat.isSymbolicLink() && stat.isFile() && stat.dev === this.identity.dev && stat.ino === this.identity.ino) {
+        fs.unlinkSync(this.file);
+        const dir = fs.openSync(path.dirname(this.file), "r"); try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
+      }
+    } finally { fs.closeSync(this.fd); this.fd = null; this.identity = null; }
+  }
+}
 class AlertSpool {
   constructor(file, identity, maxBytes = DEFAULT_SPOOL_MAX_BYTES) { this.file = file; this.identity = identity; this.maxBytes = maxBytes; this.state = null; }
   open() {
@@ -216,6 +250,7 @@ class Monitor {
     const identity = { chainId: options.expectedChainId.toString(), address: options.address, codeHash: options.codeHash };
     this.spool = new AlertSpool(options.spool || `${options.checkpoint}.alerts.json`, identity, options.spoolMaxBytes || DEFAULT_SPOOL_MAX_BYTES);
     this.journal = new AlertJournal(options.journal || `${options.checkpoint}.alerts.jsonl`, identity, faults);
+    this.lock = new MonitorLock(options.checkpoint);
   }
   stop() { this.stopped = true; if (this.wake) this.wake(); }
   async verify() {
@@ -328,7 +363,7 @@ class Monitor {
     }
     return processed;
   }
-  async run() {
+  async runLocked() {
     await this.initialize();
     if (this.o.once) {
       const target = (await this.provider.getBlockNumber()) - this.o.confirmations;
@@ -340,6 +375,11 @@ class Monitor {
       await new Promise((resolve) => { const timer = setTimeout(resolve, this.o.pollMs); this.wake = () => { clearTimeout(timer); resolve(); }; }); this.wake = null;
     } while (!this.stopped);
   }
+  async run() {
+    this.lock.acquire();
+    try { await this.runLocked(); }
+    finally { this.lock.release(); }
+  }
 }
 
 async function main() {
@@ -349,4 +389,4 @@ async function main() {
   try { await monitor.run(); } finally { process.removeListener("SIGINT", stop); process.removeListener("SIGTERM", stop); monitor.provider.destroy(); }
 }
 if (require.main === module) main().catch(async (e) => { try { await emit(process.stderr, "monitor_failure", { severity: "critical", error: e.safumode ? e.message : "RPC or internal monitoring failure" }); } finally { process.exitCode = 1; } });
-module.exports = { Monitor, AlertSpool, AlertJournal, parseArgs, argsObject, iface };
+module.exports = { Monitor, MonitorLock, AlertSpool, AlertJournal, parseArgs, argsObject, iface };

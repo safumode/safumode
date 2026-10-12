@@ -59,6 +59,33 @@ async function rejectedRunWithFaults(options, provider, out, faults) {
 }
 
 describe("SAFUMODE monitor e2e (ephemeral Hardhat chain)", function () {
+  it("allows only one monitor owner for a checkpoint fileset", async function () {
+    const f = await fixture(31, 106);
+    let unblock;
+    const gate = new Promise((resolve) => { unblock = resolve; });
+    const blockedProvider = new FaultProvider(ethers.provider, null);
+    blockedProvider.getNetwork = async () => { await gate; return ethers.provider.getNetwork(); };
+    const firstRun = new Monitor(f.options, blockedProvider, new Capture()).run();
+    expect(fs.existsSync(`${f.checkpoint}.lock`)).to.equal(true);
+    const error = await rejectedRun(f.options, ethers.provider);
+    expect(error.message).to.match(/monitor lock already exists/);
+    expect(fs.existsSync(`${f.checkpoint}.lock`)).to.equal(true);
+    unblock(); await firstRun;
+    expect(fs.existsSync(`${f.checkpoint}.lock`)).to.equal(false);
+    fs.rmSync(f.dir, { recursive: true, force: true });
+  });
+
+  it("releases its monitor lock after a failed run so restart can proceed", async function () {
+    const f = await fixture(32, 107);
+    const error = await rejectedRun(f.options, new FaultProvider(ethers.provider, "omit"));
+    expect(error.message).to.match(/log\/receipt inconsistency/);
+    expect(fs.existsSync(`${f.checkpoint}.lock`)).to.equal(false);
+    const capture = new Capture(); await new Monitor(f.options, ethers.provider, capture).run();
+    expect(capture.records().filter((r) => r.event === "WithdrawalScheduled")).to.have.length(1);
+    expect(fs.existsSync(`${f.checkpoint}.lock`)).to.equal(false);
+    fs.rmSync(f.dir, { recursive: true, force: true });
+  });
+
   it("alerts, resumes without duplicates, and fails closed on chain mismatch", async function () {
     const f = await fixture(); const first = new Capture(); await new Monitor(f.options, ethers.provider, first).run();
     const alert = first.records().find((r) => r.event === "WithdrawalScheduled");
