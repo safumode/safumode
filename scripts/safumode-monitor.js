@@ -266,14 +266,29 @@ class Monitor {
   }
   async checkReorg() {
     if (!this.state.hashes.length) return;
-    let ancestor = -1;
+    let ancestor = -1; const observed = new Map();
     for (let i = this.state.hashes.length - 1; i >= 0; i--) {
       const saved = this.state.hashes[i], block = await this.provider.getBlock(saved.number);
+      observed.set(saved.number, block && block.hash ? block.hash.toLowerCase() : null);
       if (block && block.hash.toLowerCase() === saved.hash.toLowerCase()) { ancestor = i; break; }
     }
     if (ancestor === this.state.hashes.length - 1) return;
     const rewindTo = ancestor < 0 ? Math.max(0, this.state.nextBlock - this.o.reorgDepth) : this.state.hashes[ancestor].number + 1;
-    await this.durableAlert(`reorg:${this.state.nextBlock}:${rewindTo}`, "rpc_reorg", { severity: "critical", previousNextBlock: this.state.nextBlock, rewindTo });
+    // Coordinates alone are not an event identity: after recovering, the same
+    // range can reorg again onto a third fork. Bind the durable ID to the first
+    // displaced canonical hash and its replacement so each distinct fork
+    // transition alerts once, while a restart remains idempotent.
+    // Every entry after the ancestor was observed above. Select by ancestry,
+    // rather than coordinates, and use that same provider observation for the
+    // evidence so a changing RPC response cannot produce a mismatched ID.
+    const displaced = this.state.hashes[ancestor + 1];
+    const previousBlockHash = displaced.hash.toLowerCase();
+    const replacementBlockHash = observed.get(displaced.number);
+    const evidence = `${displaced.number}:${previousBlockHash}:${replacementBlockHash || "missing"}`;
+    await this.durableAlert(`reorg:${this.state.nextBlock}:${rewindTo}:${evidence}`, "rpc_reorg", {
+      severity: "critical", previousNextBlock: this.state.nextBlock, rewindTo,
+      evidenceBlock: displaced.number, previousBlockHash, replacementBlockHash
+    });
     if (ancestor < 0) fatal("reorg exceeds retained checkpoint history; operator intervention required");
     this.state.hashes = this.state.hashes.slice(0, ancestor + 1); this.state.nextBlock = rewindTo; atomicSave(this.o.checkpoint, this.state);
   }

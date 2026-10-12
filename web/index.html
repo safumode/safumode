@@ -9,7 +9,7 @@
   <link rel="icon" href="safumode-mark.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="styles.css" />
   <script src="ethers.min.js?v=6.17.0"></script>
-  <script src="app.js?v=4" defer></script>
+  <script src="app.js?v=5" defer></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -99,7 +99,7 @@
       <div class="console">
         <div class="console-nav"><span class="mini-brand"><i></i>SAFUMODE</span><span class="demo-label" id="connection-label">NOT CONFIGURED</span></div>
         <div class="console-body">
-          <aside aria-label="Vault tools"><button class="selected" data-panel="status">Unverified status</button><button data-panel="recipients">Recipient check</button><button data-panel="activity">On-chain events</button><button data-panel="sign">Signing disabled</button></aside>
+          <aside aria-label="Vault tools"><button class="selected" data-panel="status">Unverified status</button><button data-panel="recipients">Recipient check</button><button data-panel="activity">On-chain and control events</button><button data-panel="sign">Signing disabled</button></aside>
           <div class="panel" id="panel" aria-live="polite">
             <section id="configuration"><span class="panel-label">READ-ONLY CONFIGURATION</span><h3>Preview an unverified contract</h3>
               <div class="field-grid"><label>Vault address<input id="vault-address" spellcheck="false" placeholder="0x…"></label><label>Expected chain ID<input id="chain-id" inputmode="numeric" placeholder="31337"></label><label class="wide">RPC URL (optional; stored only in this browser)<input id="rpc-url" spellcheck="false" placeholder="http://127.0.0.1:8545"></label></div>

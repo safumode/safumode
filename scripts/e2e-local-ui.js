@@ -90,6 +90,8 @@ async function main() {
     const recoveryAuthorizer = Wallet.createRandom();
     const recoveryRecipient = Wallet.createRandom();
     const trustedRecipient = Wallet.createRandom();
+    const rotatedAuthorizer = Wallet.createRandom();
+    const rotatedRecoveryAuthorizer = Wallet.createRandom();
     const deployer = await provider.getSigner(0); // Hardhat's documented local test account.
     const delay = 60n;
     const factory = new ContractFactory(artifact.abi, artifact.bytecode, deployer);
@@ -121,6 +123,23 @@ async function main() {
     ] };
     const pauseSignature = await authorizer.signTypedData(domain, pauseTypes, { paused: true, nonce: 1n, deadline });
     await (await vault.setPaused(true, false, 1n, deadline, pauseSignature, '0x')).wait();
+
+    const rotationTypes = { RotateAuthorities: [
+      { name: 'authorizer', type: 'address' }, { name: 'recoveryAuthorizer', type: 'address' },
+      { name: 'nonce', type: 'uint256' }, { name: 'deadline', type: 'uint256' }
+    ] };
+    const rotationValue = {
+      authorizer: rotatedAuthorizer.address, recoveryAuthorizer: rotatedRecoveryAuthorizer.address,
+      nonce: 1n, deadline
+    };
+    const [rotationAuthorizerSignature, rotationRecoverySignature] = await Promise.all([
+      authorizer.signTypedData(domain, rotationTypes, rotationValue),
+      recoveryAuthorizer.signTypedData(domain, rotationTypes, rotationValue)
+    ]);
+    await (await vault.scheduleRotation(
+      rotatedAuthorizer.address, rotatedRecoveryAuthorizer.address, 1n, deadline,
+      rotationAuthorizerSignature, rotationRecoverySignature
+    )).wait();
 
     const expected = {
       address: vaultAddress, authorizer: authorizer.address,
@@ -189,13 +208,34 @@ async function main() {
     assert.match(recipientResult, /Trust nonce: 1/);
     assert.match(recipientResult, /No pending trust addition/);
 
+    // Change control-plane state after the initial page load. Querying events
+    // must refresh the status cache so the next status view is not stale.
+    await provider.send('evm_increaseTime', [Number(delay)]);
+    await provider.send('evm_mine', []);
+    await (await vault.activateRotation(1n)).wait();
+
     await page.click('[data-panel="activity"]');
     await page.click('#load-events');
-    await page.waitForFunction(() => document.querySelectorAll('#events-result .event-list li').length >= 3);
+    await page.waitForFunction(() => document.querySelector('#events-result')?.textContent.includes('Status refreshed through block'));
     const eventNames = await page.$$eval('#events-result .event-list li strong', elements => elements.map(element => element.textContent));
     assert.ok(eventNames.includes('NativeDeposited'), 'deposit event is visible in activity');
     assert.ok(eventNames.includes('TrustScheduled'), 'trust schedule event is visible in activity');
     assert.ok(eventNames.includes('TrustedSet'), 'trust activation event is visible in activity');
+    assert.ok(eventNames.includes('PauseSet'), 'pause control-plane event is visible in activity');
+    assert.ok(eventNames.includes('RotationScheduled'), 'rotation schedule event is visible in activity');
+    assert.ok(eventNames.includes('AuthoritiesRotated'), 'rotation activation event is visible in activity');
+    assert.match(await page.$eval('#events-result', el => el.textContent), /Status refreshed through block/);
+
+    await page.click('[data-panel="status"]');
+    const refreshed = await page.$$eval('.state-list > div', rows => Object.fromEntries(rows.map(row => [
+      row.querySelector('dt').textContent.trim(), {
+        text: row.querySelector('dd').textContent.trim(), title: row.querySelector('dd').getAttribute('title')
+      }
+    ])));
+    assert.equal(refreshed['Authority epoch'].text, '1');
+    assert.equal(refreshed['Withdrawal authorizer'].title, rotatedAuthorizer.address);
+    assert.equal(refreshed['Recovery authorizer'].title, rotatedRecoveryAuthorizer.address);
+    assert.match(refreshed['Status freshness'].text, /^block \d+ · /);
 
     await page.click('[data-panel="sign"]');
     assert.match(await page.$eval('#live-panel', el => el.textContent), /Signing is disabled even when a pinned deployment identity matches/);
@@ -229,6 +269,10 @@ async function main() {
     await corruptStoragePage.close();
 
     // Matching bytecode is not enough: pinned self-reported state also fails closed.
+    // Account for the legitimate rotation above so delay is the intentional mismatch.
+    fixtureManifest.deployments[0].state.version = await vault.VERSION();
+    fixtureManifest.deployments[0].state.authorizer = rotatedAuthorizer.address;
+    fixtureManifest.deployments[0].state.recoveryAuthorizer = rotatedRecoveryAuthorizer.address;
     fixtureManifest.deployments[0].state.delay = '999';
     fs.writeFileSync(fixturePath, JSON.stringify(fixtureManifest, null, 2));
     const stateMismatchPage = await browser.newPage();
@@ -260,7 +304,7 @@ async function main() {
     console.log('PASS local UI end-to-end integration');
     console.log(`  chain: ${network.chainId} (ephemeral Hardhat)`);
     console.log(`  vault: ${vaultAddress}`);
-    console.log('  asserted: pinned identity, state/hash mismatch fail-closed, status/recipient/activity reads, corrupt-storage recovery, RPC warning, signing disabled, unknown address unverified');
+    console.log('  asserted: pinned identity, state/hash mismatch fail-closed, fresh status/recipient/activity reads, pause/rotation events, corrupt-storage recovery, RPC warning, signing disabled, unknown address unverified');
   } catch (error) {
     if (node?.output()) console.error(`\nHardhat output:\n${node.output()}`);
     if (web?.output()) console.error(`\nWeb output:\n${web.output()}`);

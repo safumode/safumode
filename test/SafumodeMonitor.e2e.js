@@ -26,6 +26,14 @@ class FaultProvider {
   async getLogs(filter) { const logs = await this.base.getLogs(filter); if (this.fault === "omit" || this.fault === "wrong-receipt") return []; if (this.fault === "race") this.afterLogs = filter.fromBlock; return logs; }
   async getBlock(n) { const block = await this.base.getBlock(n); if (this.fault === "race" && this.afterLogs === n) { this.afterLogs = null; return { ...block, hash: `0x${"ab".repeat(32)}` }; } return block; }
 }
+class ReorgProvider extends FaultProvider {
+  constructor(base, number, hash) { super(base, null); this.number = number; this.hash = hash; }
+  async getBlock(n) {
+    const block = await this.base.getBlock(n);
+    if (n !== this.number || !block) return block;
+    return new Proxy(block, { get: (target, property) => property === "hash" ? this.hash : Reflect.get(target, property, target) });
+  }
+}
 
 async function fixture(amount = 42, nonce = 11) {
   const [, authorizer, recovery, recipient, destination] = await ethers.getSigners();
@@ -81,6 +89,47 @@ describe("SAFUMODE monitor e2e (ephemeral Hardhat chain)", function () {
     expect(error.message).to.match(/changed during scan/); expect(JSON.parse(fs.readFileSync(f.checkpoint)).nextBlock).to.equal(f.eventBlock);
     const capture = new Capture(); await new Monitor(f.options, ethers.provider, capture).run();
     expect(capture.records().filter((r) => r.event === "WithdrawalScheduled")).to.have.length(1); fs.rmSync(f.dir, { recursive: true, force: true });
+  });
+
+  it("alerts for two distinct reorgs at the same coordinates and is restart-idempotent", async function () {
+    const f = await fixture(12, 105);
+    await ethers.provider.send("evm_mine", []); // Empty evidence block keeps the synthetic forks internally consistent.
+    await new Monitor(f.options, ethers.provider, new Capture()).run();
+    const initial = JSON.parse(fs.readFileSync(f.checkpoint));
+    const evidenceBlock = initial.nextBlock - 1;
+    const originalHash = initial.hashes.find((h) => h.number === evidenceBlock).hash.toLowerCase();
+    const forkB = `0x${"b1".repeat(32)}`, forkC = `0x${"c2".repeat(32)}`;
+
+    const first = new Capture();
+    await new Monitor(f.options, new ReorgProvider(ethers.provider, evidenceBlock, forkB), first).run();
+    const firstReorg = first.records().filter((r) => r.type === "rpc_reorg");
+    expect(firstReorg).to.have.length(1);
+    expect(firstReorg[0]).to.include({
+      evidenceBlock, previousBlockHash: originalHash, replacementBlockHash: forkB,
+      previousNextBlock: initial.nextBlock, rewindTo: evidenceBlock
+    });
+
+    const sameForkRestart = new Capture();
+    await new Monitor(f.options, new ReorgProvider(ethers.provider, evidenceBlock, forkB), sameForkRestart).run();
+    expect(sameForkRestart.records().filter((r) => r.type === "rpc_reorg")).to.have.length(0);
+
+    const second = new Capture();
+    await new Monitor(f.options, new ReorgProvider(ethers.provider, evidenceBlock, forkC), second).run();
+    const secondReorg = second.records().filter((r) => r.type === "rpc_reorg");
+    expect(secondReorg).to.have.length(1);
+    expect(secondReorg[0]).to.include({
+      evidenceBlock, previousBlockHash: forkB, replacementBlockHash: forkC,
+      previousNextBlock: initial.nextBlock, rewindTo: evidenceBlock
+    });
+
+    const secondRestart = new Capture();
+    await new Monitor(f.options, new ReorgProvider(ethers.provider, evidenceBlock, forkC), secondRestart).run();
+    expect(secondRestart.records().filter((r) => r.type === "rpc_reorg")).to.have.length(0);
+    const journal = fs.readFileSync(`${f.checkpoint}.alerts.jsonl`, "utf8").trim().split("\n").slice(1).map(JSON.parse);
+    const durableReorgs = journal.filter((item) => item.record.type === "rpc_reorg");
+    expect(durableReorgs).to.have.length(2);
+    expect(new Set(durableReorgs.map((item) => item.id)).size).to.equal(2);
+    fs.rmSync(f.dir, { recursive: true, force: true });
   });
 
   it("does not checkpoint an alert when output delivery fails", async function () {

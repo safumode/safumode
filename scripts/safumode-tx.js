@@ -14,6 +14,7 @@ const ACTIONS = Object.freeze({
   cancel: { primaryType: "Cancel", roles: (m) => [m.byRecovery ? "recoveryAuthorizer" : "authorizer"], fields: [["requestId","bytes32"],["nonce","uint256"],["deadline","uint256"]], method: "cancelWithdrawal", metadata: ["byRecovery"] },
   pause: { primaryType: "SetPaused", roles: (m) => m.paused ? [m.byRecovery ? "recoveryAuthorizer" : "authorizer"] : ["authorizer","recoveryAuthorizer"], fields: [["paused","bool"],["nonce","uint256"],["deadline","uint256"]], method: "setPaused", metadata: ["byRecovery"] },
   rotate: { primaryType: "RotateAuthorities", roles: ["authorizer","recoveryAuthorizer"], fields: [["authorizer","address"],["recoveryAuthorizer","address"],["nonce","uint256"],["deadline","uint256"]], method: "scheduleRotation" },
+  "cancel-rotation": { primaryType: "CancelRotation", roles: (m) => [m.byRecovery ? "recoveryAuthorizer" : "authorizer"], fields: [["nonce","uint256"],["deadline","uint256"]], method: "cancelRotation", metadata: ["byRecovery"] },
 });
 
 function stable(value) {
@@ -112,6 +113,10 @@ async function validateRelay(bundle, manifestInput, signatures, provider) {
   if (a === "trust" && n !== (await vault.trustNonce(bundle.message.account)) + 1n) fail("invalid trust nonce");
   if (a === "pause" && n !== (await vault.controlNonce()) + 1n) fail("invalid control nonce");
   if (a === "rotate" && n !== (await vault.rotationNonce()) + 1n) fail("invalid rotation nonce");
+  if (a === "cancel-rotation") {
+    const pending = await vault.pendingRotation();
+    if (n !== await vault.rotationNonce() || pending.executableAt === 0n || pending.nonce !== n) fail("rotation cancellation does not match pending rotation");
+  }
   verifySignatures(bundle, signatures);
   return vault;
 }
@@ -144,6 +149,7 @@ async function relay(bundle, manifest, signatures, provider, relayer, options = 
     tx = await v.setPaused(m.paused,md.byRecovery,m.nonce,m.deadline,firstSignature,s.recoveryAuthorizer || "0x");
   }
   if (bundle.action === "rotate") tx = await v.scheduleRotation(m.authorizer,m.recoveryAuthorizer,m.nonce,m.deadline,s.authorizer,s.recoveryAuthorizer);
+  if (bundle.action === "cancel-rotation") tx = await v.cancelRotation(md.byRecovery,m.nonce,m.deadline,s[md.byRecovery?"recoveryAuthorizer":"authorizer"]);
   const receipt = await tx.wait();
   return { dryRun: false, transactionHash: receipt.hash, blockNumber: receipt.blockNumber };
 }

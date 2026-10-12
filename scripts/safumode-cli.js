@@ -4,6 +4,8 @@ const fs = require("fs");
 const { ethers } = require("ethers");
 const { canonical, digest, prepare, relay } = require("./safumode-tx");
 
+const PREPARE_ACTIONS = "schedule|withdraw|recover|trust|cancel|pause|rotate|cancel-rotation";
+
 function args(argv) {
   const out = { _: [] };
   for (let i=0;i<argv.length;i++) {
@@ -40,7 +42,7 @@ async function main() {
     process.stdout.write(canonical({...result,digest:digest(bundle)}));
     return;
   }
-  throw new Error("usage: safumode-cli.js prepare --manifest FILE --action ACTION --input FILE [--version 1:N]\n       safumode-cli.js relay --manifest FILE --bundle FILE --signatures FILE --rpc URL [--broadcast --relayer ADDRESS --relayer-index N]");
+  throw new Error(`usage: safumode-cli.js prepare --manifest FILE --action ${PREPARE_ACTIONS} --input FILE [--version 1:N]\n       safumode-cli.js relay --manifest FILE --bundle FILE --signatures FILE --rpc URL [--broadcast --relayer ADDRESS --relayer-index N]`);
 }
 if (require.main === module) main().catch(e=>{ console.error(`SAFUMODE: ${e.message}`); process.exitCode=1; });
-module.exports = { args, main, relayerIndex };
+module.exports = { args, main, relayerIndex, PREPARE_ACTIONS };
