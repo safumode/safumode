@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="SAFUMODE explores separated vault authority with a read-only contract verifier. Unaudited research; no endorsed public deployment." />
+  <meta name="description" content="SAFUMODE is a vault design where your everyday wallet cannot withdraw funds on its own. A separate key approves exits. Read-only research; no public vault deployment." />
   <meta name="theme-color" content="#171714" />
   <title>SAFUMODE — Separate authority, visible limits</title>
   <link rel="icon" href="safumode-mark.svg" type="image/svg+xml" />
@@ -24,25 +24,25 @@
   <main id="main">
     <section class="hero" id="top">
       <div class="hero-copy">
-        <p class="overline"><span></span>Built for BNB Chain · separated authority</p>
-        <h1>Put distance<br>between <em>use</em><br>and <em>authority.</em></h1>
-        <p class="hero-lede">SAFUMODE explores a vault where the wallet that funds or relays an action does not hold the authority to approve an exit.</p>
-        <div class="hero-links"><a class="button" href="#routing">Trace the two gates <span>↓</span></a><a class="text-link" href="#prototype">Open read-only verifier</a></div>
+        <p class="overline"><span></span>BNB Chain · read-only research</p>
+        <h1>Your daily wallet<br>can’t empty<br><em>your vault.</em></h1>
+        <p class="hero-lede">SAFUMODE separates the wallet you use every day from the key that approves withdrawals. If your daily wallet is compromised, it cannot take funds from the vault by itself. A separate key must approve the exit.</p>
+        <div class="hero-links"><a class="button" href="#ledger">See how it works <span>↓</span></a><a class="text-link" href="#prototype">Explore the read-only tool</a></div>
       </div>
       <div class="hero-plate" aria-label="Concept summary">
-        <div class="plate-meta"><span>AUTHORITY STUDY / 01</span><span>守 <span class="sr-only">Guard</span></span></div>
+        <div class="plate-meta"><span>HOW THE VAULT WORKS</span><span>守 <span class="sr-only">Guard</span></span></div>
         <div class="plate-rule"></div>
-        <p class="plate-quote">“The device you use every day should not be the last word.”</p>
-        <dl><div><dt>Everyday wallet</dt><dd>Fund + relay</dd></div><div><dt>Exit authority</dt><dd>Approve requests</dd></div><div><dt>Recovery authority</dt><dd>Bounded controls</dd></div></dl>
-        <p class="plate-caption">A design study, not a deployed product. No public deployment or custody service is offered.</p>
+        <p class="plate-quote">“Putting money in and taking money out should require different keys.”</p>
+        <dl><div><dt>Daily wallet</dt><dd>Deposits; cannot approve exits</dd></div><div><dt>Separate key</dt><dd>Approves withdrawals</dd></div><div><dt>Recovery key</dt><dd>Can pause or recover to a fixed address</dd></div></dl>
+        <p class="plate-caption">The public site is an explanation and read-only tool, not a live vault. No public deployment or custody service is offered.</p>
       </div>
       <aside class="truth-strip" aria-label="Project status"><strong>UNAUDITED</strong><span>Local development only</span><span>Signing disabled in this interface</span><span>No endorsed mainnet deployment</span></aside>
     </section>
 
     <section class="intro section" id="model">
-      <div class="section-label">01 / OPERATING MODEL</div>
-      <div class="intro-title"><h2>Authority is a boundary,<br>not a promise.</h2></div>
-      <div class="intro-copy"><p>The model assigns narrow jobs to separate roles. The funding wallet can deposit and relay. A withdrawal authorizer approves exits. A recovery authorizer receives specific control powers—but cannot redirect recovery funds away from the recipient fixed at deployment.</p><p class="note">This separation does not make key loss harmless. Lose both current authorities and there is no administrator, support desk, or back door to restore them.</p></div>
+      <div class="section-label">01 / THE IDEA</div>
+      <div class="intro-title"><h2>One wallet to use.<br>Another key to approve.</h2></div>
+      <div class="intro-copy"><p>Put funds in the vault with your daily wallet. To take them out, a separate withdrawal key has to sign. You can keep that key on a Ledger. Sending to a new address also starts a waiting period so there is time to cancel.</p><p class="note">This does not protect you if the separate approval key is compromised or you approve a malicious withdrawal. Lose both controlling keys and there is no support desk that can restore access.</p></div>
     </section>
 
     <section class="route-lab section" id="routing">
