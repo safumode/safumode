@@ -120,6 +120,30 @@ async function validateRelay(bundle, manifestInput, signatures, provider) {
   verifySignatures(bundle, signatures);
   return vault;
 }
+async function dispatchRelay(vault, bundle, signatures, staticCall) {
+  const m = bundle.message, s = signatures, md = bundle.metadata;
+  const invoke = (method, args) => staticCall
+    ? vault[method].staticCall(...args)
+    : vault[method](...args);
+
+  if (bundle.action === "schedule") return invoke("scheduleWithdrawal", [m.asset,m.to,m.amount,m.nonce,m.deadline,s.authorizer]);
+  if (bundle.action === "withdraw") return invoke("withdrawTrusted", [m.asset,m.to,m.amount,m.nonce,m.deadline,s.authorizer]);
+  if (bundle.action === "recover") return invoke("recover", [m.asset,m.amount,m.nonce,m.deadline,s.recoveryAuthorizer]);
+  if (bundle.action === "trust") return m.trusted
+    ? invoke("scheduleTrust", [m.account,m.nonce,m.deadline,s.authorizer,s.recoveryAuthorizer])
+    : invoke("revokeTrust", [m.account,m.nonce,m.deadline,s.authorizer]);
+  if (bundle.action === "cancel") return invoke("cancelWithdrawal", [m.requestId,md.byRecovery,m.nonce,m.deadline,s[md.byRecovery?"recoveryAuthorizer":"authorizer"]]);
+  if (bundle.action === "pause") {
+    // `byRecovery` selects the sole signer only when pausing. Unpausing is
+    // always authorizer-first and recovery-second in AuthorizationVault,
+    // irrespective of this otherwise-irrelevant metadata bit.
+    const firstSignature = m.paused && md.byRecovery ? s.recoveryAuthorizer : s.authorizer;
+    return invoke("setPaused", [m.paused,md.byRecovery,m.nonce,m.deadline,firstSignature,s.recoveryAuthorizer || "0x"]);
+  }
+  if (bundle.action === "rotate") return invoke("scheduleRotation", [m.authorizer,m.recoveryAuthorizer,m.nonce,m.deadline,s.authorizer,s.recoveryAuthorizer]);
+  if (bundle.action === "cancel-rotation") return invoke("cancelRotation", [md.byRecovery,m.nonce,m.deadline,s[md.byRecovery?"recoveryAuthorizer":"authorizer"]]);
+  fail(`unsupported action: ${bundle.action}`);
+}
 async function relay(bundle, manifest, signatures, provider, relayer, options = {}) {
   if (!options.rpcUrl || typeof options.rpcUrl !== "string") fail("rpcUrl is required");
   let rpc;
@@ -127,29 +151,21 @@ async function relay(bundle, manifest, signatures, provider, relayer, options = 
   if (!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(rpc.hostname)) fail("relay library is local-only; rpcUrl must use a loopback hostname");
   const vault = await validateRelay(bundle, manifest, signatures, provider);
   if ((await provider.getNetwork()).chainId !== LOCAL_CHAIN_ID) fail(`relay library is local-only; expected chain ${LOCAL_CHAIN_ID}`);
-  if (options.dryRun) return { dryRun: true, digest: digest(bundle), action: bundle.action };
+  if (options.dryRun) {
+    await dispatchRelay(vault, bundle, signatures, true);
+    return { dryRun: true, digest: digest(bundle), action: bundle.action };
+  }
   if (!relayer) fail("local broadcast requires an unlocked RPC relayer");
+  // Validation and broadcast must use the exact same provider object. Merely
+  // checking the relayer address is insufficient: an identically addressed
+  // signer can be connected to another RPC (and therefore another chain).
+  if (relayer.provider !== provider) fail("local broadcast relayer provider does not match checked provider");
   if (!options.relayerAddress) fail("local broadcast requires an explicit relayerAddress");
   const selectedRelayer = address(options.relayerAddress, "relayerAddress");
   let unlocked;
   try { unlocked = address(await relayer.getAddress(), "unlocked relayer"); } catch (_) { fail("unable to resolve unlocked RPC relayer"); }
   if (unlocked !== selectedRelayer) fail(`unlocked relayer does not match explicit relayerAddress: expected ${selectedRelayer}, got ${unlocked}`);
-  const v = vault.connect(relayer), m = bundle.message, s = signatures, md = bundle.metadata;
-  let tx;
-  if (bundle.action === "schedule") tx = await v.scheduleWithdrawal(m.asset,m.to,m.amount,m.nonce,m.deadline,s.authorizer);
-  if (bundle.action === "withdraw") tx = await v.withdrawTrusted(m.asset,m.to,m.amount,m.nonce,m.deadline,s.authorizer);
-  if (bundle.action === "recover") tx = await v.recover(m.asset,m.amount,m.nonce,m.deadline,s.recoveryAuthorizer);
-  if (bundle.action === "trust") tx = m.trusted ? await v.scheduleTrust(m.account,m.nonce,m.deadline,s.authorizer,s.recoveryAuthorizer) : await v.revokeTrust(m.account,m.nonce,m.deadline,s.authorizer);
-  if (bundle.action === "cancel") tx = await v.cancelWithdrawal(m.requestId,md.byRecovery,m.nonce,m.deadline,s[md.byRecovery?"recoveryAuthorizer":"authorizer"]);
-  if (bundle.action === "pause") {
-    // `byRecovery` selects the sole signer only when pausing. Unpausing is
-    // always authorizer-first and recovery-second in AuthorizationVault,
-    // irrespective of this otherwise-irrelevant metadata bit.
-    const firstSignature = m.paused && md.byRecovery ? s.recoveryAuthorizer : s.authorizer;
-    tx = await v.setPaused(m.paused,md.byRecovery,m.nonce,m.deadline,firstSignature,s.recoveryAuthorizer || "0x");
-  }
-  if (bundle.action === "rotate") tx = await v.scheduleRotation(m.authorizer,m.recoveryAuthorizer,m.nonce,m.deadline,s.authorizer,s.recoveryAuthorizer);
-  if (bundle.action === "cancel-rotation") tx = await v.cancelRotation(md.byRecovery,m.nonce,m.deadline,s[md.byRecovery?"recoveryAuthorizer":"authorizer"]);
+  const tx = await dispatchRelay(vault.connect(relayer), bundle, signatures, false);
   const receipt = await tx.wait();
   return { dryRun: false, transactionHash: receipt.hash, blockNumber: receipt.blockNumber };
 }

@@ -3,6 +3,7 @@
 const fs = require("fs");
 const { ethers } = require("ethers");
 const { canonical, digest, prepare, relay } = require("./safumode-tx");
+const { lifecycle } = require("./safumode-lifecycle");
 
 const PREPARE_ACTIONS = "schedule|withdraw|recover|trust|cancel|pause|rotate|cancel-rotation";
 
@@ -42,7 +43,18 @@ async function main() {
     process.stdout.write(canonical({...result,digest:digest(bundle)}));
     return;
   }
-  throw new Error(`usage: safumode-cli.js prepare --manifest FILE --action ${PREPARE_ACTIONS} --input FILE [--version 1:N]\n       safumode-cli.js relay --manifest FILE --bundle FILE --signatures FILE --rpc URL [--broadcast --relayer ADDRESS --relayer-index N]`);
+  if (command === "lifecycle") {
+    if (!a.action) throw new Error("--action is required");
+    if (!a.rpc) throw new Error("--rpc is required for manifest and current-state verification");
+    if (a.broadcast && !a.relayer) throw new Error("--relayer is required with --broadcast");
+    const provider=new ethers.JsonRpcProvider(a.rpc), index=relayerIndex(a["relayer-index"]);
+    const relayer=a.broadcast ? await provider.getSigner(index) : null;
+    const input={ account:a.account, nonce:a.nonce, requestId:a["request-id"] };
+    const result=await lifecycle(a.manifest,a.action,input,provider,relayer,{rpcUrl:a.rpc,broadcast:!!a.broadcast,relayerAddress:a.relayer});
+    process.stdout.write(canonical(result));
+    return;
+  }
+  throw new Error(`usage: safumode-cli.js prepare --manifest FILE --action ${PREPARE_ACTIONS} --input FILE [--version 1:N]\n       safumode-cli.js relay --manifest FILE --bundle FILE --signatures FILE --rpc URL [--broadcast --relayer ADDRESS --relayer-index N]\n       safumode-cli.js lifecycle --manifest FILE --rpc URL --action activate-trust --account ADDRESS --nonce N [--broadcast --relayer ADDRESS --relayer-index N]\n       safumode-cli.js lifecycle --manifest FILE --rpc URL --action execute-withdrawal --request-id BYTES32 [--broadcast --relayer ADDRESS --relayer-index N]\n       safumode-cli.js lifecycle --manifest FILE --rpc URL --action activate-rotation --nonce N [--broadcast --relayer ADDRESS --relayer-index N]`);
 }
 if (require.main === module) main().catch(e=>{ console.error(`SAFUMODE: ${e.message}`); process.exitCode=1; });
 module.exports = { args, main, relayerIndex, PREPARE_ACTIONS };

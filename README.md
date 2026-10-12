@@ -68,9 +68,21 @@ Run the complete transaction lifecycle against an ephemeral in-process Hardhat c
 npm run operator:drill
 ```
 
-The drill deploys and funds a fresh vault, creates throwaway authority and recipient keys in memory, prepares EIP-712 typed data, signs it with offline `Wallet` objects, and uses a separate unlocked Hardhat development account only as the local relayer. It asserts each state transition while exercising trust scheduling and activation, recovery-authority pause, two-authority resume, trusted withdrawal, delayed withdrawal scheduling and cancellation, fixed-recipient recovery, and delayed authority rotation. It prints a non-secret run summary on success. `npm run test:drill` runs the same scenario as a focused test.
+The drill deploys and funds a fresh vault, creates throwaway authority and recipient keys in memory, prepares EIP-712 typed data, signs it with offline `Wallet` objects, and uses a separate unlocked Hardhat development account only as the local relayer. It asserts each state transition while exercising trust scheduling and activation, recovery-authority pause, two-authority resume, trusted withdrawal, delayed withdrawal scheduling and cancellation, fixed-recipient recovery, a unilateral emergency rotation veto, and a subsequent delayed authority rotation. It prints a non-secret run summary on success. `npm run test:drill` runs the same scenario as a focused test.
 
 The command is intentionally constrained to Hardhat chain ID `31337`; relay validation accepts only a loopback URL and verifies the checked-out build fingerprint and deployed runtime. It does not read environment private keys, persist generated keys, start or contact an external RPC, or use a user wallet. Every invocation begins from a fresh in-process Hardhat network, so the drill is reproducible and leaves no deployment behind.
+
+### Local lifecycle completion
+
+The signed relay CLI's default dry-run now simulates the exact contract call, not just signature/nonce preflight. Permissionless second-stage operations have a separate **local Hardhat-only** command; they do not request authority signatures or private keys:
+
+```sh
+node scripts/safumode-cli.js lifecycle --manifest deployments/hardhat-local.json --rpc http://127.0.0.1:8545 --action activate-trust --account 0xACCOUNT --nonce 1
+node scripts/safumode-cli.js lifecycle --manifest deployments/hardhat-local.json --rpc http://127.0.0.1:8545 --action execute-withdrawal --request-id 0xREQUEST_ID
+node scripts/safumode-cli.js lifecycle --manifest deployments/hardhat-local.json --rpc http://127.0.0.1:8545 --action activate-rotation --nonce 1
+```
+
+These commands validate the local manifest/deployment and simulate the exact call without changing state. To broadcast **only on a fresh local Hardhat node**, add `--broadcast --relayer 0xUNLOCKED_LOCAL_ACCOUNT --relayer-index 0` using the matching development account. There is no production relay path. A successful simulation is only a point-in-time check: state can change before broadcast; verify the receipt and resulting state.
 
 ### Reproducible local deployment manifest
 
