@@ -1,115 +1,58 @@
-# SAFUMODE Authorization Vault
+# SAFUMODE
 
-SAFUMODE is an educational EVM custody prototype and a static, read-only browser for its state. The repository is **unaudited, not production-ready, and has no endorsed mainnet deployment**.
+A separate EVM vault for assets you do not want controlled by your everyday wallet. Anyone can fund it or relay a signed instruction. Moving assets out requires an authority signature, and the destination determines whether the transfer waits. The funding wallet has no special withdrawal rights.
 
-## Current security design
+This repository contains the Solidity vault, a local operator workflow, a read only browser, and a monitor. It does not contain a public deployment, a production signer, or a live alert service. The code has not had an independent security review. Do not put real assets or production keys into this build.
 
-The vault separates an everyday funding/relay wallet from two signing authorities:
+## Where to start
 
-- **Deposits are permissionless.** Depositing or relaying a transaction grants no withdrawal authority.
-- **Withdrawal authorizer:** signs withdrawals and immediate trust revocations.
-- **Recovery authorizer:** can perform emergency recovery only to the immutable recovery recipient. It also participates in trust additions, authority rotation, and resume authorization.
-- **Untrusted withdrawals are delayed.** A withdrawal-authorizer-signed exit to an untrusted address is queued for the immutable non-zero `delay`. Either current authority can cancel it before execution.
-- **Trusted recipients are exceptional.** Adding one requires matching EIP-712 signatures from both authorities and delayed activation. A primary-authorizer-signed revocation is immediate. Per-recipient sequential nonces prevent replay and skipped authorizations.
+| If you want to know... | Read |
+| :--- | :--- |
+| What the contract actually accepts | [Protocol](docs/PROTOCOL.md) and [AuthorizationVault.sol](contracts/AuthorizationVault.sol) |
+| What happens when a key is stolen or lost | [Threat model](docs/THREAT-MODEL.md) and [Key loss runbook](KEY-LOSS-RUNBOOK.md) |
+| How the local operator flow works | [Operator notes](docs/OPERATOR.md) |
+| What the tests exercise | [Testing](docs/TESTING.md) |
+| How monitoring stores alerts | [Monitor notes](SAFUMODE.md) |
+| Where the contract, scripts, and browser meet | [Architecture](docs/ARCHITECTURE.md) |
+| How to report a vulnerability privately | [Security](SECURITY.md) |
+| What an outside reviewer should inspect | [Review packet](AUDIT-PACKET.md) and [Audit readiness](AUDIT-READINESS.md) |
 
-### Rotation and veto
+## The arrangement
 
-Authority rotation is 2-of-2: both current authorities sign the same replacement pair, and activation waits for `delay`. Either current authority can veto a pending rotation unilaterally. Old authorities are marked retired and cannot later be installed again. Activation increments `authorityEpoch`; this invalidates grants and queued state tied to the previous epoch rather than iterating over every recipient or request.
+The withdrawal authorizer signs ordinary exits. A trusted recipient can receive an immediate withdrawal. An address that is not trusted has to wait through the vault's configured delay, during which either authority can cancel the request.
 
-This deliberately does **not** solve loss of either authority: scheduling a rotation requires both current signatures.
+The recovery authorizer can move assets immediately, but only to the recovery recipient fixed at deployment. The caller cannot substitute an address. Trust additions and changes to the two authorities require both signatures and a delay. Trust revocation can be done by the withdrawal authorizer alone. Either authority may pause or veto a pending authority rotation. Resuming requires both signatures. While paused, neither withdrawals nor authority rotation can go through.
 
-### Pause
+That last rule has a sharp edge. If one authority is permanently lost while the vault is paused, the survivor cannot resume it or replace the missing key. This is an explicit tradeoff in the current contract, not a recovery feature. The [key loss runbook](KEY-LOSS-RUNBOOK.md) goes through the cases.
 
-Either current authority can pause unilaterally. While paused, outflows and trust additions/activations are blocked. Resuming requires matching signatures from both authorities. Pause state does not replace monitoring, key security, or operational response.
+ERC20 transfers out must debit the vault and credit the recipient by exactly the signed amount. Tokens with transfer fees, rebasing, or other unusual balance behavior can become immovable. The contract can accept a token deposit based on the net amount received without establishing that the token can later leave. Do not infer asset compatibility from a successful deposit.
 
-### Recovery
+## What exists today
 
-A recovery-authorizer-signed recovery sends assets only to the immutable `recoveryRecipient`; the caller cannot select another destination. It bypasses the normal withdrawal delay, but like every outflow it is blocked while the vault is paused. This is a deliberate emergency path and a concentrated trust assumption.
+The contract and its test fixtures live in `contracts/` and `test/`. The browser in `web/` reads vault state and recent activity; it does not sign transactions. Its production deployment allowlist is empty. An unknown address or failed pin check is not shown as a verified vault. A user supplied RPC can still lie about chain state, including code and balances.
 
-## Read-only, unverified UI
+The scripts can prepare EIP 712 data offline, simulate signed calls, and relay them only through an explicitly selected local Hardhat node. The unsigned lifecycle commands can activate matured local operations. None of these scripts is a production signing or relay service. The operator drill uses disposable keys and an ephemeral chain.
 
-The static UI accepts a vault address, expected chain ID, and either an explicit RPC URL or injected provider. It reads authorities, native balance, pause state, authority epoch, recipient trust state, and recent events. It checks the reported name/version and internal EIP-712 domain consistency.
+The monitor reads events from a pinned contract and stores local checkpoint, spool, and journal files. The separate alert tool can record a local acknowledgement without deleting journal entries. A local acknowledgement is not evidence that someone received a page or responded to an incident. There is no managed production monitor here.
 
-Those checks **do not authenticate deployed bytecode**. A user-selected or malicious RPC can fabricate code and responses. The repository's deployment manifest workflow is deliberately local-only and is not consumed by the UI or a public-chain registry. Consequently:
+## Run it locally
 
-- all signing and transaction flows are disabled;
-- displayed values are explicitly an unverified RPC preview;
-- the UI is not a wallet, relayer, monitor, or custody service.
-
-Run the static UI locally with:
-
-```sh
-npm run dev
-```
-
-## Local verification
-
-Contract tests:
+Use Node and npm with the checked in lockfile.
 
 ```sh
+npm ci
+npm run compile
 npm test
-```
-
-Actual browser integration test:
-
-```sh
-npm run test:e2e:ui
-```
-
-The integration command compiles the existing contract, chooses unused localhost ports, starts an ephemeral Hardhat node, generates throwaway in-memory authority/recipient accounts, deploys and funds a vault, establishes a trusted recipient, pauses the vault, and serves the real UI. Headless Chrome then enters the vault address, chain ID, and localhost RPC and verifies that displayed authorities, balance, pause state, authority epoch, and trusted-recipient lookup equal direct on-chain reads. Processes are stopped afterward.
-
-The test never reads a private-key environment variable, contacts a public RPC, or uses mainnet. Hardhat's local deployer is a publicly known development account; all vault authorities are newly generated test-only wallets and are never persisted. Chrome is discovered in common locations; set `CHROME_PATH` if it is installed elsewhere.
-
-### Local operator drill
-
-Run the complete transaction lifecycle against an ephemeral in-process Hardhat chain:
-
-```sh
 npm run operator:drill
+npm run test:e2e:ui
+npm run test:e2e:lifecycle
+npm run build
 ```
 
-The drill deploys and funds a fresh vault, creates throwaway authority and recipient keys in memory, prepares EIP-712 typed data, signs it with offline `Wallet` objects, and uses a separate unlocked Hardhat development account only as the local relayer. It asserts each state transition while exercising trust scheduling and activation, recovery-authority pause, two-authority resume, trusted withdrawal, delayed withdrawal scheduling and cancellation, fixed-recipient recovery, a unilateral emergency rotation veto, and a subsequent delayed authority rotation. It prints a non-secret run summary on success. `npm run test:drill` runs the same scenario as a focused test.
+The browser test requires Chrome or Chromium. If detection fails, set `CHROME_PATH` to its executable. The test harnesses start temporary Hardhat chains and use disposable development accounts. `npm run dev` serves the static browser locally. It is a read only view, not a place to connect a funded wallet or sign a vault instruction.
 
-The command is intentionally constrained to Hardhat chain ID `31337`; relay validation accepts only a loopback URL and verifies the checked-out build fingerprint and deployed runtime. It does not read environment private keys, persist generated keys, start or contact an external RPC, or use a user wallet. Every invocation begins from a fresh in-process Hardhat network, so the drill is reproducible and leaves no deployment behind.
+For a longer account of what each command proves and where the coverage stops, read [Testing](docs/TESTING.md). For local manifest generation and the transaction workflow, read [Operator notes](docs/OPERATOR.md).
 
-### Local lifecycle completion
+## Release status
 
-The signed relay CLI's default dry-run now simulates the exact contract call, not just signature/nonce preflight. Permissionless second-stage operations have a separate **local Hardhat-only** command; they do not request authority signatures or private keys:
-
-```sh
-node scripts/safumode-cli.js lifecycle --manifest deployments/hardhat-local.json --rpc http://127.0.0.1:8545 --action activate-trust --account 0xACCOUNT --nonce 1
-node scripts/safumode-cli.js lifecycle --manifest deployments/hardhat-local.json --rpc http://127.0.0.1:8545 --action execute-withdrawal --request-id 0xREQUEST_ID
-node scripts/safumode-cli.js lifecycle --manifest deployments/hardhat-local.json --rpc http://127.0.0.1:8545 --action activate-rotation --nonce 1
-```
-
-These commands validate the local manifest/deployment and simulate the exact call without changing state. To broadcast **only on a fresh local Hardhat node**, add `--broadcast --relayer 0xUNLOCKED_LOCAL_ACCOUNT --relayer-index 0` using the matching development account. There is no production relay path. A successful simulation is only a point-in-time check: state can change before broadcast; verify the receipt and resulting state.
-
-### Reproducible local deployment manifest
-
-This workflow accepts only chain ID `31337` and loopback RPC verification. It uses Hardhat's public development accounts (deployer account 0; constructor roles accounts 1–3), never a user wallet. Start a clean node, then deploy and verify in other terminals:
-
-```sh
-npx hardhat node
-npm run manifest:deploy:local
-npm run manifest:verify:local
-npm run test:manifest
-```
-
-The default file is `deployments/hardhat-local.json`. Override output with `SAFUMODE_MANIFEST`; pass a manifest path and loopback URL to verification as positional arguments, for example `node scripts/verify-local-manifest.js ./copy.json http://localhost:8545`. `SAFUMODE_LOCAL_DELAY` may override the default `3600` seconds and is recorded in the manifest.
-
-The manifest pins chain ID, checksum address, actual runtime-code Keccak-256, normalized constructor parameters, deployment transaction/block, full solc build version/settings, compiler-input and source hashes, bytecode-template hashes, lockfile hash, and an aggregate build fingerprint. Verification checks the RPC chain and runtime, reads immutable recovery recipient/delay from the contract, validates the successful contract-creation transaction and its constructor calldata against the pinned initial authorities and parameters, and compares the checked-out local build. Current authorities can legitimately change after a delayed rotation; the deployment transaction preserves the initial-authority proof. Verification fails closed if the deployment transaction is unavailable or mismatched. This is reproducibility evidence for an ephemeral test chain—not an audit, public deployment attestation, or defense against a malicious RPC.
-
-## Release limitations
-
-This is a prototype release, not a security product:
-
-- no professional audit, formal verification, bug bounty, or production hardening;
-- no mainnet/testnet deployment or public verified artifact; the browser has an intentionally empty production deployment allowlist and does not endorse any address (local test-chain manifests are separate);
-- no browser transaction-building/signing UI, production relayer, indexer, managed alerting, continuous monitoring, or incident-response service; the offline preparation/local-only relay CLI and provider-only monitor with local spool/journal do not establish downstream notification;
-- no upgrade or mutable administrator path; constructor choices (including delay and recovery recipient) are permanent;
-- rotation requires both surviving current authorities and cannot recover a lost authority;
-- recovery authority remains powerful because it can immediately move funds to the fixed recovery recipient;
-- browser/RPC output is untrusted and should not be used as proof of contract identity;
-- token compatibility and real operational key-management assumptions are not exhaustively validated.
-
-Review the Solidity and tests directly before experimentation. Do not place real assets or real keys in this prototype.
+There is no endorsed mainnet or testnet deployment. This repository is private, so its GitHub URL is not public proof of the code. Tests and CI exercise local deployments; they are not an audit. Real custody would require an independent review and remediation, an asset policy, real device and key loss rehearsals, a staffed alert route, and a separate decision to deploy. The review packet is prepared, but no completed audit is claimed.
