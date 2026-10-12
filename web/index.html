@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#171714" />
   <title>SAFUMODE — Separate authority, visible limits</title>
   <link rel="icon" href="safumode-mark.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=ledger-flow-1" />
   <script src="ethers.min.js?v=6.17.0"></script>
   <script src="app.js?v=7" defer></script>
 </head>
@@ -16,7 +16,7 @@
   <header class="site-header">
     <a class="brand" href="#top" aria-label="SAFUMODE home"><span class="brand-sigil" aria-hidden="true">守</span><span>SAFU<span>MODE</span></span></a>
     <nav aria-label="Primary navigation">
-      <a href="#model">Model</a><a href="#routing">Routing</a><a href="#recovery">Recovery</a><a href="#prototype">Read-only app</a><a href="#field-notes">Notes</a>
+      <a href="#model">Model</a><a href="#routing">Routing</a><a href="#ledger">Ledger flow</a><a href="#recovery">Recovery</a><a href="#prototype">Read-only app</a><a href="#field-notes">Notes</a>
     </nav>
     <button class="header-notice" type="button" data-open-dialog>Read the notice</button>
   </header>
@@ -66,6 +66,20 @@
           <div class="route-explain recovery-copy-label"><span>RECOVERY EXCEPTION</span><p>The recovery authority can transfer immediately, only to the immutable recovery recipient, while the vault is unpaused. The withdrawal delay does not apply.</p></div>
         </div>
       </div>
+    </section>
+
+    <section class="ledger-flow section" id="ledger" aria-labelledby="ledger-title">
+      <div class="ledger-heading"><div><div class="section-label">03 / HARDWARE AUTHORITY</div><h2 id="ledger-title">Your daily wallet<br>isn’t the exit key.</h2></div><p>See where a Ledger-controlled key fits. This is an illustration, not a wallet connection or live transaction.</p></div>
+      <div class="ledger-stage" aria-label="Illustrated flow: daily wallet requests, Ledger approves, vault checks policy, then funds can exit">
+        <div class="ledger-card" style="--step:0"><div class="ledger-icon" aria-hidden="true">↗</div><span>01 / REQUEST</span><h3>Daily wallet</h3><p>Submits an exit request. It cannot approve that exit alone.</p></div>
+        <div class="ledger-wire" aria-hidden="true"><i></i></div>
+        <div class="ledger-card ledger-device" style="--step:1"><div class="ledger-icon" aria-hidden="true">▣</div><span>02 / APPROVE</span><h3>Ledger key</h3><p>Separately reviews and signs the exact withdrawal authorization.</p></div>
+        <div class="ledger-wire" aria-hidden="true"><i></i></div>
+        <div class="ledger-card" style="--step:2"><div class="ledger-icon" aria-hidden="true">◈</div><span>03 / CHECK</span><h3>Vault rules</h3><p>Verifies the signature. A new recipient must wait; a trusted one needn’t.</p></div>
+        <div class="ledger-wire" aria-hidden="true"><i></i></div>
+        <div class="ledger-card ledger-result" style="--step:3"><div class="ledger-icon" aria-hidden="true">✓</div><span>04 / EXIT</span><h3>Funds move</h3><p>Only when the required approval and route policy both pass.</p></div>
+      </div>
+      <p class="ledger-caption"><strong>What’s available now:</strong> Ledger clear-signing has been added to the local test-chain CLI. This website is read-only; Ledger signing and real-money vault use are not enabled here.</p>
     </section>
 
     <section class="roles section" aria-label="Authority roles">
