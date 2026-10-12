@@ -81,7 +81,7 @@
       <div class="recovery-copy">
         <div class="section-index">02 / TRUSTED RECOVERY</div>
         <h2>Delay the exits that matter.</h2>
-        <p>Withdrawals to untrusted addresses wait for the configured delay. Either authority can cancel a pending exit. Adding a trusted recipient requires both signatures and delayed activation. Either authority can pause; resuming requires both. Rotation requires both signatures, waits through the delay, and either current authority can veto it. A recovery transfer to the fixed recovery recipient is immediate. Monitoring is not implemented.</p>
+        <p>Withdrawals to untrusted addresses wait for the configured delay. Either authority can cancel a pending exit. Adding a trusted recipient requires both signatures and delayed activation. Either authority can pause; resuming requires both. While paused, rotations cannot be scheduled or activated, but either current authority can still veto a pending rotation. After both authorities resume the vault, an already-matured rotation may activate unless vetoed. Rotation requires both signatures and waits through the delay. A recovery transfer to the fixed recovery recipient is immediate while the vault is unpaused. A local read-only event monitor exists, but no production alert-delivery or on-call service is running.</p>
         <div class="legend"><span><i class="dot active"></i>Active</span><span><i class="dot wait"></i>Delay</span><span><i class="dot future"></i>Available</span></div>
       </div>
       <div class="timeline" aria-label="Example recovery timeline">

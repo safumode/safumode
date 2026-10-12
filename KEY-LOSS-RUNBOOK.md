@@ -52,7 +52,7 @@ The surviving authorizer does not gain recovery authority. It can only use norma
 
 Do not try to place one signature in both rotation signature slots, label one signer as the other role, use a `Withdraw` signature as a `Recover` signature, or use a `Recover` signature as a withdrawal signature. EIP-712 role/type verification rejects these substitutions. Rotation remains 2-of-2 even during key loss and remains delayed after a valid 2-of-2 schedule.
 
-Likewise, unilateral pause is a stop mechanism, not a recovery mechanism. Once paused, `recover`, scheduling, execution, trusted withdrawals, and trust activation are blocked. Resume requires current authorizer and recovery-authorizer signatures over the same next control nonce.
+Likewise, unilateral pause is a stop mechanism, not a recovery mechanism. Once paused, `recover`, withdrawal/trust/rotation scheduling, withdrawal/trust/rotation activation or execution, and trusted withdrawals are blocked. Cancellation remains available: either current authority may veto a pending rotation (and either may cancel a queued withdrawal) while paused. Resume requires current authorizer and recovery-authorizer signatures over the same next control nonce. After that 2-of-2 resume, an already-matured pending rotation can activate unless either authority vetoed it; pause does not erase the pending rotation.
 
 ## Migration—not rotation—after a loss
 

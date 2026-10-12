@@ -133,8 +133,6 @@ async function main() {
     const pauseTypes = { SetPaused: [
       { name: 'paused', type: 'bool' }, { name: 'nonce', type: 'uint256' }, { name: 'deadline', type: 'uint256' }
     ] };
-    const pauseSignature = await authorizer.signTypedData(domain, pauseTypes, { paused: true, nonce: 1n, deadline });
-    await (await vault.setPaused(true, false, 1n, deadline, pauseSignature, '0x')).wait();
 
     const rotationTypes = { RotateAuthorities: [
       { name: 'authorizer', type: 'address' }, { name: 'recoveryAuthorizer', type: 'address' },
@@ -152,6 +150,9 @@ async function main() {
       rotatedAuthorizer.address, rotatedRecoveryAuthorizer.address, 1n, deadline,
       rotationAuthorizerSignature, rotationRecoverySignature
     )).wait();
+    // A pending rotation can be paused, but cannot activate while paused.
+    const pauseSignature = await authorizer.signTypedData(domain, pauseTypes, { paused: true, nonce: 1n, deadline });
+    await (await vault.setPaused(true, false, 1n, deadline, pauseSignature, '0x')).wait();
 
     const expected = {
       address: vaultAddress, authorizer: authorizer.address,
@@ -224,6 +225,10 @@ async function main() {
     // refresh must re-check the pin and revoke the earlier verified identity.
     await provider.send('evm_increaseTime', [Number(delay)]);
     await provider.send('evm_mine', []);
+    const resumeValue = { paused: false, nonce: 2n, deadline };
+    await (await vault.setPaused(false, false, 2n, deadline,
+      await authorizer.signTypedData(domain, pauseTypes, resumeValue),
+      await recoveryAuthorizer.signTypedData(domain, pauseTypes, resumeValue))).wait();
     await (await vault.activateRotation(1n)).wait();
 
     await page.click('[data-panel="status"]');

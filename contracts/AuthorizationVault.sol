@@ -155,6 +155,7 @@ contract AuthorizationVault {
     /// @notice Rotation is 2-of-2 and delayed; it intentionally cannot bypass loss of either key.
     function scheduleRotation(address newAuthorizer, address newRecoveryAuthorizer, uint256 nonce,
         uint256 deadline, bytes calldata authorizerSignature, bytes calldata recoverySignature) external {
+        if (paused) revert Paused();
         if (newAuthorizer == address(0) || newRecoveryAuthorizer == address(0) || newAuthorizer == newRecoveryAuthorizer ||
             newAuthorizer == authorizer || newAuthorizer == recoveryAuthorizer ||
             newRecoveryAuthorizer == authorizer || newRecoveryAuthorizer == recoveryAuthorizer ||
@@ -170,6 +171,7 @@ contract AuthorizationVault {
     }
 
     function activateRotation(uint256 nonce) external {
+        if (paused) revert Paused();
         PendingRotation memory pending = pendingRotation;
         if (pending.executableAt == 0 || pending.nonce != nonce || rotationNonce != nonce) revert RotationMissing();
         if (block.timestamp < pending.executableAt) revert TooEarly();
