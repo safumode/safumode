@@ -43,3 +43,14 @@ Use `npm run safumode -- --help` for options. `--once` performs one catch-up sca
 ## Verification
 
 `npm run test:safumode` uses an ephemeral Hardhat chain. In addition to normal alert/restart and chain mismatch coverage, it tests exclusive lock contention and failure release; deterministic fault injection tests omitted logs, a header/log reorg race, crash after durable enqueue, output and replay-output failure, accepted stdout followed by journal failure and restart recovery, duplicate spool IDs, spool bounds/symlink refusal, and invalid future startup/checkpoint state.
+
+## Inspecting and acknowledging alerts
+
+Use the offline sidecar tool while retaining the monitor journal as evidence:
+
+```sh
+npm run safumode:alerts -- inspect --journal /var/lib/safumode/vault.alerts.jsonl --chain-id 56 --address 0xCHECKSUMMED_VAULT
+npm run safumode:alerts -- acknowledge --journal /var/lib/safumode/vault.alerts.jsonl --chain-id 56 --address 0xCHECKSUMMED_VAULT --id ALERT_ID
+```
+
+Acknowledgements default to `JOURNAL.acks.json`; use `--acks FILE` to choose another sidecar. Acknowledgement holds an exclusive `ACKS.lock` across its complete read/modify/write and fails closed if that lock exists. There is no stale-lock takeover: after a crash, verify no acknowledgement process is running before manually removing the lock. The journal and sidecar must not be the same pathname or hardlinks. An acknowledgement records only an operator action in the local sidecar; it does **not** prove durable downstream delivery, pager receipt, review by a human, or remediation. Back up and ship the journal and acknowledgement sidecar according to the site's own retention and alerting procedures.
