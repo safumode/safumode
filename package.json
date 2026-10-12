@@ -13,7 +13,10 @@
     "test:e2e:ui": "hardhat compile && node scripts/e2e-local-ui.js",
     "manifest:deploy:local": "hardhat compile && hardhat run scripts/deploy-local-manifest.js --network localhost",
     "manifest:verify:local": "node scripts/verify-local-manifest.js",
-    "test:manifest": "hardhat test test/DeploymentManifest.js"
+    "test:manifest": "hardhat test test/DeploymentManifest.js",
+    "tx:prepare": "node scripts/safumode-cli.js prepare",
+    "tx:relay": "node scripts/safumode-cli.js relay",
+    "test:tx": "hardhat test test/SafumodeTx.js"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
