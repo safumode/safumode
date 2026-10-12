@@ -8,6 +8,8 @@ It alerts (one JSON object per stdout line) for withdrawal scheduling/execution/
 
 **A trusted archival RPC is required.** It must return complete historical blocks, transaction receipts, and logs. No client can prove completeness when its only information source is an arbitrary malicious RPC: a provider can consistently fabricate a chain and all corresponding answers. Independently pin the chain ID, checksummed vault address, deployment block, and runtime bytecode hash, and use independently operated providers if compromise resistance is required. SAFUMODE fails closed on inconsistencies it can detect; this is monitoring, not prevention or a cryptographic completeness guarantee.
 
+The vault's ERC20 support is deliberately limited to assets whose outbound `transfer` decreases the vault balance and increases the recipient balance by exactly the signed amount. Fee-on-transfer (whether charged to sender or recipient), rebasing, reflective, denylisted, callback-mutating, or otherwise non-exact tokens can revert and become immovable. Balance checks reduce accounting ambiguity; they do **not** make arbitrary ERC20 contracts safe. Native transfers do not use these ERC20 checks. Operators must maintain an independently reviewed supported-asset allowlist and test each exact deployed token implementation.
+
 For every scanned block, the monitor fetches its header before and after the log query, obtains every transaction receipt, derives the monitored vault events from those receipts, compares that set with `eth_getLogs`, and checks every log/receipt block hash against the header before advancing its checkpoint. A missing receipt, omitted/extra log, hash mismatch, or header change stops the monitor without checkpointing that block.
 
 ## Pin the deployment

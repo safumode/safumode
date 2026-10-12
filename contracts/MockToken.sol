@@ -55,6 +55,19 @@ contract FeeToken {
     }
 }
 
+/// @dev Debits the sender by 110% while crediting the requested amount.
+contract SenderFeeToken {
+    mapping(address => uint256) public balanceOf;
+    function mint(address to, uint256 amount) external { balanceOf[to] += amount; }
+    function transfer(address to, uint256 amount) external returns (bool) {
+        uint256 fee = amount / 10;
+        require(balanceOf[msg.sender] >= amount + fee, "balance");
+        balanceOf[msg.sender] -= amount + fee;
+        balanceOf[to] += amount;
+        return true;
+    }
+}
+
 contract ReentrantToken {
     mapping(address => uint256) public balanceOf;
     address public callbackTarget;

@@ -4,7 +4,7 @@ Status: **UNAUDITED, NOT DEPLOYED, NO REAL FUNDS.** This is an original EVM prot
 
 ## Contract scope (freeze exact revision before requesting a quote)
 - `contracts/AuthorizationVault.sol`, Solidity compiler settings, lockfile, deploy constructor parameters.
-- Native BNB and conventional BEP-20 handling; actual-received deposits; token callbacks and nonstandard token behavior.
+- Native BNB and limited conventional BEP-20 handling; actual-received deposits; exact vault-debit/recipient-credit checks on outflow; token callbacks and nonstandard token behavior.
 - EIP-712 domains, chain/contract/authority epoch, signature validation, nonce/deadline and queued-effect invalidation.
 - Untrusted timed exits, 2-of-2 delayed trusted-recipient additions, immediate revocation, emergency pause and 2-of-2 resume.
 - Recovery-signature immediate payout to immutable recovery recipient, delayed 2-of-2 authority rotation with unilateral veto; irreversible key loss.
@@ -20,7 +20,7 @@ Status: **UNAUDITED, NOT DEPLOYED, NO REAL FUNDS.** This is an original EVM prot
 - Independent agent review identified and prompted fixes to rotation stale-signature/queue behavior, absent veto, active trust persistence, misleading UI identity claims. This **is not an independent security audit**.
 
 ## Release blockers (not optional polish)
-1. Define supported assets and safe-operation procedure. Fee-on-transfer deposits report net amount but outgoing transfers do not guarantee recipient's net amount. Rebasing, blacklist and malicious token behavior are excluded.
+1. Define a reviewed supported-asset allowlist and safe-operation procedure. ERC20 outflows require both the vault debit and recipient credit to equal the signed amount, so sender-fee and recipient-fee tokens revert rather than silently violating accounting. This check is not universal ERC20 safety: rebasing, reflection, denylisting, callbacks, malicious balance reporting, upgrades, and other nonstandard behavior remain excluded and may make assets immovable.
 2. Establish secure key-generation/storage, separate signer custody, independent monitoring/alerts, transaction relaying, tested recovery drill and incident response. No live signing workflow exists in the website; do not ask users to sign or deposit.
 3. Review the provisional strict 2-of-2 signer-loss policy in [KEY-LOSS-RUNBOOK.md](KEY-LOSS-RUNBOOK.md) with an independent auditor and rehearse it with real custody devices. Rotation cannot recover a lost key; if paused and either key is permanently lost, assets are immovable through this contract. Decide whether that residual risk, EOA-only authorities, and the immutable recovery recipient are acceptable **before any funds-holding deployment**; the local tests do not make that decision for production.
 4. Finish higher-volume fuzz/invariant testing and third-party review of contract + operational security; remediate findings and obtain independent re-review. A paid engagement alone is not an approval badge.

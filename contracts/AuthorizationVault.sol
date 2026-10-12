@@ -23,6 +23,9 @@ contract AuthorizationVault {
     error InvalidControlNonce();
     error RotationMissing();
     error BalanceDecreased();
+    /// @dev ERC20 outflows must debit the vault and credit the recipient by exactly
+    ///      the signed amount. This excludes fee, rebasing and otherwise non-exact tokens.
+    error ExactTransferMismatch();
 
     struct PendingTrust {
         uint64 executableAt;
@@ -358,7 +361,18 @@ contract AuthorizationVault {
             (bool ok,) = to.call{value: amount}("");
             if (!ok) revert TransferFailed();
         } else {
+            uint256 vaultBefore = _balanceOf(asset, address(this));
+            uint256 recipientBefore = _balanceOf(asset, to);
             _callOptionalReturn(asset, abi.encodeWithSelector(0xa9059cbb, to, amount));
+            uint256 vaultAfter = _balanceOf(asset, address(this));
+            uint256 recipientAfter = _balanceOf(asset, to);
+            // Difference comparisons avoid arithmetic panics and preserve one stable
+            // error. Zero transfers pass only when both balances are unchanged. A
+            // positive ERC20 self-transfer cannot satisfy both exact deltas and fails.
+            if (vaultAfter > vaultBefore || vaultBefore - vaultAfter != amount ||
+                recipientAfter < recipientBefore || recipientAfter - recipientBefore != amount) {
+                revert ExactTransferMismatch();
+            }
         }
     }
 

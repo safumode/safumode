@@ -35,6 +35,7 @@ Authority rotation is delayed and requires valid signatures from **both current 
 1. Read `recoveryRecipient()` directly from the deployed contract.
 2. Independently verify control of that address and its ability to receive/manage every asset involved.
 3. Inventory native currency and token contract addresses; beware unsupported, rebasing, fee-on-transfer, denylisted, or malicious tokens.
+   ERC20 recovery succeeds only when the vault debit and recipient credit both equal the signed amount exactly. This intentionally rejects sender-fee and recipient-fee transfers, but does not make arbitrary tokens safe; an unsupported token may remain immovable.
 4. Generate fresh nonces/deadlines, inspect typed data on the recovery signing device, and submit a small canary where operationally appropriate.
 5. Confirm receipt, then recover remaining balances asset by asset.
 
@@ -47,6 +48,7 @@ The surviving authorizer does not gain recovery authority. It can only use norma
 3. Monitor the request and source/destination addresses throughout the delay. With the recovery key missing, its cancellation power is unavailable, though the authorizer can cancel its own queued request.
 4. After the delay, call `executeWithdrawal(requestId)` and verify balances/events.
 5. Repeat for native currency and each ERC20. Do not mistake a successful schedule for completed migration.
+   Use only reviewed supported assets: execution reverts unless an ERC20 debits the vault and credits the destination by exactly the signed amount. Rebasing, reflective, fee, denylisted, callback-mutating, upgradeable, or malicious tokens are not universally supported and may be stranded.
 
 ## No single-key rotation or bypass
 
