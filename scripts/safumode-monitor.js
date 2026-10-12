@@ -148,8 +148,28 @@ class AlertJournal {
       const dir = fs.openSync(dirName, "r"); try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
     }
     assertSafeFile(this.file, "alert journal");
-    const lines = fs.readFileSync(this.file, "utf8").split("\n");
-    if (lines.pop() !== "") fatal("alert journal has an incomplete record");
+    const nofollow = fs.constants.O_NOFOLLOW || 0;
+    let contents;
+    const fd = fs.openSync(this.file, fs.constants.O_RDWR | nofollow);
+    try {
+      // Use the same descriptor for validation, recovery, and reading so a
+      // path swap cannot make the lstat above apply to a different object.
+      if (!fs.fstatSync(fd).isFile()) fatal("alert journal must be a regular file, not a symlink");
+      contents = fs.readFileSync(fd, "utf8");
+      if (!contents.endsWith("\n")) {
+        // An append interrupted before fsync can leave only the final JSONL
+        // record torn. Complete newline-terminated records remain committed;
+        // the corresponding spool item (if any) is replayed below startup.
+        const committedBytes = contents.lastIndexOf("\n") + 1;
+        if (committedBytes === 0) fatal("alert journal is unreadable or invalid");
+        fs.ftruncateSync(fd, Buffer.byteLength(contents.slice(0, committedBytes), "utf8"));
+        fs.fsyncSync(fd);
+        contents = contents.slice(0, committedBytes);
+      }
+      fs.fchmodSync(fd, 0o600);
+    } finally { fs.closeSync(fd); }
+    const lines = contents.split("\n");
+    lines.pop();
     let header;
     try { header = JSON.parse(lines.shift()); } catch (_) { fatal("alert journal is unreadable or invalid"); }
     if (!header || header.safumodeJournal !== 1 || json(header.identity) !== json(this.identity)) fatal("alert journal has invalid schema or configuration identity mismatch");
@@ -159,7 +179,6 @@ class AlertJournal {
       if (this.records.has(item.id) && json(this.records.get(item.id)) !== json(item.record)) fatal("alert journal contains a conflicting duplicate ID");
       this.records.set(item.id, item.record);
     }
-    fs.chmodSync(this.file, 0o600);
   }
   append(id, record) {
     if (this.records.has(id)) {
@@ -229,7 +248,15 @@ class Monitor {
     }
   }
   async durableAlert(id, type, fields) {
-    const record = { safumode: 1, type, ...fields }; this.spool.enqueue(id, record);
+    const record = { safumode: 1, type, ...fields };
+    // A replayed spool item can belong to the block that the unchanged
+    // checkpoint is about to scan again. Its journal entry proves this exact
+    // alert was already emitted, so do not emit it a second time.
+    if (this.journal.records.has(id)) {
+      if (json(this.journal.records.get(id)) !== json(record)) fatal("alert journal ID conflicts with an existing record");
+      return;
+    }
+    this.spool.enqueue(id, record);
     if (this.faults.afterSpool) await this.faults.afterSpool(id, record);
     await writeRecord(this.out, record);
     // Preserve a local durable copy before removing the retry copy. Stdout's

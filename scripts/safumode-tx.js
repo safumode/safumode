@@ -136,7 +136,13 @@ async function relay(bundle, manifest, signatures, provider, relayer, options = 
   if (bundle.action === "recover") tx = await v.recover(m.asset,m.amount,m.nonce,m.deadline,s.recoveryAuthorizer);
   if (bundle.action === "trust") tx = m.trusted ? await v.scheduleTrust(m.account,m.nonce,m.deadline,s.authorizer,s.recoveryAuthorizer) : await v.revokeTrust(m.account,m.nonce,m.deadline,s.authorizer);
   if (bundle.action === "cancel") tx = await v.cancelWithdrawal(m.requestId,md.byRecovery,m.nonce,m.deadline,s[md.byRecovery?"recoveryAuthorizer":"authorizer"]);
-  if (bundle.action === "pause") tx = await v.setPaused(m.paused,md.byRecovery,m.nonce,m.deadline,s[md.byRecovery?"recoveryAuthorizer":"authorizer"],s.recoveryAuthorizer || "0x");
+  if (bundle.action === "pause") {
+    // `byRecovery` selects the sole signer only when pausing. Unpausing is
+    // always authorizer-first and recovery-second in AuthorizationVault,
+    // irrespective of this otherwise-irrelevant metadata bit.
+    const firstSignature = m.paused && md.byRecovery ? s.recoveryAuthorizer : s.authorizer;
+    tx = await v.setPaused(m.paused,md.byRecovery,m.nonce,m.deadline,firstSignature,s.recoveryAuthorizer || "0x");
+  }
   if (bundle.action === "rotate") tx = await v.scheduleRotation(m.authorizer,m.recoveryAuthorizer,m.nonce,m.deadline,s.authorizer,s.recoveryAuthorizer);
   const receipt = await tx.wait();
   return { dryRun: false, transactionHash: receipt.hash, blockNumber: receipt.blockNumber };
