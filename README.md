@@ -1,28 +1,76 @@
-# Authorization Vault Prototype
+# SAFUMODE Authorization Vault
 
-Local educational EVM vault prototype. **Not audited, production-ready, or deployed.**
+SAFUMODE is an educational EVM custody prototype and a static, read-only browser for its state. The repository is **unaudited, not production-ready, and has no endorsed mainnet deployment**.
 
-## Security model
+## Current security design
 
-- Deposits are permissionless.
-- The primary offline authorizer signs withdrawals. Untrusted-recipient withdrawals wait for the immutable non-zero `delay` and may be cancelled by either authority.
-- A recipient cannot become trusted from a primary signature alone. `scheduleTrust` requires matching EIP-712 `SetTrusted(..., true, ...)` signatures from both the primary and independent recovery authorizers. `activateTrust` is only possible after `delay`.
-- Trust changes use a strictly sequential nonce for each recipient (`trustNonce[account]`). Replays, skipped nonces, and older authorizations are rejected.
-- `revokeTrust` requires the next primary-signed `SetTrusted(..., false, ...)` nonce, takes effect immediately, and deletes any pending addition. Thus a queued stale authorization cannot restore revoked trust.
-- Recovery transfers can only go to the immutable recovery recipient.
+The vault separates an everyday funding/relay wallet from two signing authorities:
 
-There is deliberately no mutable administrator or deployment script. Initial trusted recipients are not accepted by the constructor; every addition must pass independent co-signing and delayed activation.
+- **Deposits are permissionless.** Depositing or relaying a transaction grants no withdrawal authority.
+- **Withdrawal authorizer:** signs withdrawals and immediate trust revocations.
+- **Recovery authorizer:** can perform emergency recovery only to the immutable recovery recipient. It also participates in trust additions, authority rotation, and resume authorization.
+- **Untrusted withdrawals are delayed.** A withdrawal-authorizer-signed exit to an untrusted address is queued for the immutable non-zero `delay`. Either current authority can cancel it before execution.
+- **Trusted recipients are exceptional.** Adding one requires matching EIP-712 signatures from both authorities and delayed activation. A primary-authorizer-signed revocation is immediate. Per-recipient sequential nonces prevent replay and skipped authorizations.
 
-## Trust workflow
+### Rotation and veto
 
-1. Read `trustNonce(account)` and use exactly the next nonce.
-2. Both authorities sign the same EIP-712 `SetTrusted(account, true, nonce, deadline)` value.
-3. Any relayer calls `scheduleTrust` with both signatures.
-4. After `delay`, anyone calls `activateTrust(account, nonce)`.
-5. To revoke, the primary signs `SetTrusted(account, false, nextNonce, deadline)` and a relayer calls `revokeTrust`; this is immediate.
+Authority rotation is 2-of-2: both current authorities sign the same replacement pair, and activation waits for `delay`. Either current authority can veto a pending rotation unilaterally. Old authorities are marked retired and cannot later be installed again. Activation increments `authorityEpoch`; this invalidates grants and queued state tied to the previous epoch rather than iterating over every recipient or request.
+
+This deliberately does **not** solve loss of either authority: scheduling a rotation requires both current signatures.
+
+### Pause
+
+Either current authority can pause unilaterally. While paused, outflows and trust additions/activations are blocked. Resuming requires matching signatures from both authorities. Pause state does not replace monitoring, key security, or operational response.
+
+### Recovery
+
+A recovery-authorizer-signed recovery sends assets only to the immutable `recoveryRecipient`; the caller cannot select another destination. It bypasses the normal withdrawal delay, but like every outflow it is blocked while the vault is paused. This is a deliberate emergency path and a concentrated trust assumption.
+
+## Read-only, unverified UI
+
+The static UI accepts a vault address, expected chain ID, and either an explicit RPC URL or injected provider. It reads authorities, native balance, pause state, authority epoch, recipient trust state, and recent events. It checks the reported name/version and internal EIP-712 domain consistency.
+
+Those checks **do not authenticate deployed bytecode**. A user-selected or malicious RPC can fabricate code and responses. There is no independently pinned deployment manifest, chain/address registry, or expected runtime-bytecode hash. Consequently:
+
+- all signing and transaction flows are disabled;
+- displayed values are explicitly an unverified RPC preview;
+- the UI is not a wallet, relayer, monitor, or custody service.
+
+Run the static UI locally with:
+
+```sh
+npm run dev
+```
 
 ## Local verification
+
+Contract tests:
 
 ```sh
 npm test
 ```
+
+Actual browser integration test:
+
+```sh
+npm run test:e2e:ui
+```
+
+The integration command compiles the existing contract, chooses unused localhost ports, starts an ephemeral Hardhat node, generates throwaway in-memory authority/recipient accounts, deploys and funds a vault, establishes a trusted recipient, pauses the vault, and serves the real UI. Headless Chrome then enters the vault address, chain ID, and localhost RPC and verifies that displayed authorities, balance, pause state, authority epoch, and trusted-recipient lookup equal direct on-chain reads. Processes are stopped afterward.
+
+The test never reads a private-key environment variable, contacts a public RPC, or uses mainnet. Hardhat's local deployer is a publicly known development account; all vault authorities are newly generated test-only wallets and are never persisted. Chrome is discovered in common locations; set `CHROME_PATH` if it is installed elsewhere.
+
+## Release limitations
+
+This is a prototype release, not a security product:
+
+- no professional audit, formal verification, bug bounty, or production hardening;
+- no mainnet/testnet deployment, deployment tooling, verified artifact, or pinned UI manifest;
+- no transaction-building/signing UI, relayer, indexer, alerting, continuous monitoring, or incident-response service;
+- no upgrade or mutable administrator path; constructor choices (including delay and recovery recipient) are permanent;
+- rotation requires both surviving current authorities and cannot recover a lost authority;
+- recovery authority remains powerful because it can immediately move funds to the fixed recovery recipient;
+- browser/RPC output is untrusted and should not be used as proof of contract identity;
+- token compatibility and real operational key-management assumptions are not exhaustively validated.
+
+Review the Solidity and tests directly before experimentation. Do not place real assets or real keys in this prototype.

@@ -22,7 +22,7 @@ describe("AuthorizationVault adversarial", function () {
   beforeEach(async function () {
     [, authorizer, recovery, recipient, other] = await ethers.getSigners();
     vault = await ethers.deployContract("AuthorizationVault", [authorizer, recovery, recipient, delay]);
-    domain = { name: "Authorization Vault Prototype", version: "1", chainId: 31337, verifyingContract: await vault.getAddress() };
+    domain = { name: "Authorization Vault Prototype", version: await vault.VERSION(), chainId: 31337, verifyingContract: await vault.getAddress() };
   });
   async function now() { return (await ethers.provider.getBlock("latest")).timestamp; }
   async function sign(signer, type, fields, value, signingDomain = domain) {
@@ -105,10 +105,10 @@ describe("AuthorizationVault adversarial", function () {
     await expect(vault.depositToken(other, 1)).to.be.revertedWithCustomError(vault, "TransferFailed");
   });
 
-  it("characterizes fee tokens: event is requested amount, balance is net amount", async function () {
+  it("reports fee-token deposits by the net amount actually received", async function () {
     const fee = await ethers.deployContract("FeeToken");
     await fee.mint(other, 100); await fee.connect(other).approve(vault, 100);
-    await expect(vault.connect(other).depositToken(fee, 100)).to.emit(vault, "TokenDeposited").withArgs(other, fee, 100);
+    await expect(vault.connect(other).depositToken(fee, 100)).to.emit(vault, "TokenDeposited").withArgs(other, fee, 90);
     expect(await fee.balanceOf(vault)).to.equal(90);
   });
 

@@ -18,6 +18,11 @@ contract AuthorizationVault {
     error InvalidDelay();
     error InvalidTrustNonce();
     error TrustChangeMissing();
+    error Paused();
+    error InvalidPauseState();
+    error InvalidControlNonce();
+    error RotationMissing();
+    error BalanceDecreased();
 
     struct PendingTrust {
         uint64 executableAt;
@@ -33,8 +38,15 @@ contract AuthorizationVault {
         bool executed;
     }
 
+    struct PendingRotation {
+        address authorizer;
+        address recoveryAuthorizer;
+        uint64 executableAt;
+        uint256 nonce;
+    }
+
     string public constant NAME = "Authorization Vault Prototype";
-    string public constant VERSION = "1";
+    string public constant BASE_VERSION = "1";
     bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256(
         "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
     );
@@ -50,20 +62,39 @@ contract AuthorizationVault {
     bytes32 public constant RECOVER_TYPEHASH = keccak256(
         "Recover(address asset,uint256 amount,uint256 nonce,uint256 deadline)"
     );
+    bytes32 public constant PAUSE_TYPEHASH = keccak256(
+        "SetPaused(bool paused,uint256 nonce,uint256 deadline)"
+    );
+    bytes32 public constant ROTATE_TYPEHASH = keccak256(
+        "RotateAuthorities(address authorizer,address recoveryAuthorizer,uint256 nonce,uint256 deadline)"
+    );
+    bytes32 public constant CANCEL_ROTATION_TYPEHASH = keccak256(
+        "CancelRotation(uint256 nonce,uint256 deadline)"
+    );
     uint256 private constant SECP256K1N_HALF =
         0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
 
-    address public immutable authorizer;
-    address public immutable recoveryAuthorizer;
+    address public authorizer;
+    address public recoveryAuthorizer;
     address public immutable recoveryRecipient;
     uint64 public immutable delay;
-    mapping(address => bool) public trusted;
+    // Epoch + 1 avoids ambiguity with the mapping's zero value. Incrementing
+    // authorityEpoch invalidates all active grants without iterating addresses.
+    mapping(address => uint256) private trustedEpoch;
     mapping(address => uint256) public trustNonce;
     mapping(address => PendingTrust) public pendingTrust;
     mapping(uint256 => bool) public authorizerNonceUsed;
     mapping(uint256 => bool) public recoveryNonceUsed;
     mapping(bytes32 => Request) public requests;
     uint256 private locked = 1;
+    bool public paused;
+    uint256 public controlNonce;
+    uint256 public rotationNonce;
+    uint256 public authorityEpoch;
+    PendingRotation public pendingRotation;
+    mapping(address => bool) public retiredAuthority;
+    mapping(address => uint256) public pendingTrustEpoch;
+    mapping(bytes32 => uint256) private requestEpoch;
 
     event NativeDeposited(address indexed from, uint256 amount);
     event TokenDeposited(address indexed from, address indexed token, uint256 amount);
@@ -73,6 +104,10 @@ contract AuthorizationVault {
     event WithdrawalScheduled(bytes32 indexed requestId, address indexed asset, address indexed to, uint256 amount, uint64 executableAt);
     event WithdrawalCancelled(bytes32 indexed requestId);
     event RecoveryExecuted(address indexed asset, address indexed recoveryRecipient, uint256 amount);
+    event PauseSet(bool paused, uint256 indexed nonce);
+    event RotationScheduled(address indexed authorizer, address indexed recoveryAuthorizer, uint256 indexed nonce, uint64 executableAt);
+    event AuthoritiesRotated(address indexed authorizer, address indexed recoveryAuthorizer, uint256 indexed nonce);
+    event RotationCancelled(uint256 indexed nonce, address indexed vetoingAuthority);
 
     constructor(address authorizer_, address recoveryAuthorizer_, address recoveryRecipient_, uint64 delay_) {
         if (authorizer_ == address(0) || recoveryAuthorizer_ == address(0) || recoveryRecipient_ == address(0)) {
@@ -88,15 +123,78 @@ contract AuthorizationVault {
 
     receive() external payable { emit NativeDeposited(msg.sender, msg.value); }
 
-    function depositToken(address token, uint256 amount) external {
+    function depositToken(address token, uint256 amount) external nonReentrant returns (uint256 received) {
         if (token == address(0)) revert InvalidAddress();
+        uint256 beforeBalance = _balanceOf(token, address(this));
         _safeTransferFrom(token, msg.sender, address(this), amount);
-        emit TokenDeposited(msg.sender, token, amount);
+        uint256 afterBalance = _balanceOf(token, address(this));
+        if (afterBalance < beforeBalance) revert BalanceDecreased();
+        received = afterBalance - beforeBalance;
+        emit TokenDeposited(msg.sender, token, received);
+    }
+
+    /// @notice Either authority can stop outflows. Resumption requires both authorities.
+    function setPaused(bool paused_, bool byRecovery, uint256 nonce, uint256 deadline,
+        bytes calldata signature, bytes calldata secondSignature) external {
+        if (paused_ == paused) revert InvalidPauseState();
+        if (nonce != controlNonce + 1) revert InvalidControlNonce();
+        bytes32 structHash = keccak256(abi.encode(PAUSE_TYPEHASH, paused_, nonce, deadline));
+        if (paused_) {
+            _verify(byRecovery ? recoveryAuthorizer : authorizer, deadline, structHash, signature);
+        } else {
+            _verify(authorizer, deadline, structHash, signature);
+            _verify(recoveryAuthorizer, deadline, structHash, secondSignature);
+        }
+        controlNonce = nonce;
+        paused = paused_;
+        emit PauseSet(paused_, nonce);
+    }
+
+    /// @notice Rotation is 2-of-2 and delayed; it intentionally cannot bypass loss of either key.
+    function scheduleRotation(address newAuthorizer, address newRecoveryAuthorizer, uint256 nonce,
+        uint256 deadline, bytes calldata authorizerSignature, bytes calldata recoverySignature) external {
+        if (newAuthorizer == address(0) || newRecoveryAuthorizer == address(0) || newAuthorizer == newRecoveryAuthorizer ||
+            newAuthorizer == authorizer || newAuthorizer == recoveryAuthorizer ||
+            newRecoveryAuthorizer == authorizer || newRecoveryAuthorizer == recoveryAuthorizer ||
+            retiredAuthority[newAuthorizer] || retiredAuthority[newRecoveryAuthorizer]) revert InvalidAddress();
+        if (nonce != rotationNonce + 1) revert InvalidControlNonce();
+        bytes32 structHash = keccak256(abi.encode(ROTATE_TYPEHASH, newAuthorizer, newRecoveryAuthorizer, nonce, deadline));
+        _verify(authorizer, deadline, structHash, authorizerSignature);
+        _verify(recoveryAuthorizer, deadline, structHash, recoverySignature);
+        rotationNonce = nonce;
+        uint64 executableAt = uint64(block.timestamp) + delay;
+        pendingRotation = PendingRotation(newAuthorizer, newRecoveryAuthorizer, executableAt, nonce);
+        emit RotationScheduled(newAuthorizer, newRecoveryAuthorizer, nonce, executableAt);
+    }
+
+    function activateRotation(uint256 nonce) external {
+        PendingRotation memory pending = pendingRotation;
+        if (pending.executableAt == 0 || pending.nonce != nonce || rotationNonce != nonce) revert RotationMissing();
+        if (block.timestamp < pending.executableAt) revert TooEarly();
+        delete pendingRotation;
+        retiredAuthority[authorizer] = true;
+        retiredAuthority[recoveryAuthorizer] = true;
+        authorizer = pending.authorizer;
+        recoveryAuthorizer = pending.recoveryAuthorizer;
+        authorityEpoch++;
+        emit AuthoritiesRotated(pending.authorizer, pending.recoveryAuthorizer, nonce);
+    }
+
+    /// @notice Either current authority may unilaterally veto a pending rotation.
+    function cancelRotation(bool byRecovery, uint256 nonce, uint256 deadline, bytes calldata signature) external {
+        PendingRotation memory pending = pendingRotation;
+        if (pending.executableAt == 0 || pending.nonce != nonce || rotationNonce != nonce) revert RotationMissing();
+        bytes32 structHash = keccak256(abi.encode(CANCEL_ROTATION_TYPEHASH, nonce, deadline));
+        address vetoingAuthority = byRecovery ? recoveryAuthorizer : authorizer;
+        _verify(vetoingAuthority, deadline, structHash, signature);
+        delete pendingRotation;
+        emit RotationCancelled(nonce, vetoingAuthority);
     }
 
     /// @notice Additions require both authorities and activate only after the delay.
     function scheduleTrust(address account, uint256 nonce, uint256 deadline,
         bytes calldata authorizerSignature, bytes calldata recoverySignature) external {
+        if (paused) revert Paused();
         if (account == address(0)) revert InvalidAddress();
         if (nonce != trustNonce[account] + 1) revert InvalidTrustNonce();
         bytes32 structHash = keccak256(abi.encode(TRUST_TYPEHASH, account, true, nonce, deadline));
@@ -105,15 +203,19 @@ contract AuthorizationVault {
         trustNonce[account] = nonce;
         uint64 executableAt = uint64(block.timestamp) + delay;
         pendingTrust[account] = PendingTrust(executableAt, nonce);
+        pendingTrustEpoch[account] = authorityEpoch;
         emit TrustScheduled(account, nonce, executableAt);
     }
 
     function activateTrust(address account, uint256 nonce) external {
+        if (paused) revert Paused();
         PendingTrust memory pending = pendingTrust[account];
-        if (pending.executableAt == 0 || pending.nonce != nonce || trustNonce[account] != nonce) revert TrustChangeMissing();
+        if (pending.executableAt == 0 || pending.nonce != nonce || trustNonce[account] != nonce ||
+            pendingTrustEpoch[account] != authorityEpoch) revert TrustChangeMissing();
         if (block.timestamp < pending.executableAt) revert TooEarly();
         delete pendingTrust[account];
-        trusted[account] = true;
+        delete pendingTrustEpoch[account];
+        trustedEpoch[account] = authorityEpoch + 1;
         emit TrustedSet(account, true, nonce);
     }
 
@@ -125,14 +227,16 @@ contract AuthorizationVault {
         _verify(authorizer, deadline, structHash, signature);
         trustNonce[account] = nonce;
         delete pendingTrust[account];
-        trusted[account] = false;
+        delete pendingTrustEpoch[account];
+        delete trustedEpoch[account];
         emit TrustedSet(account, false, nonce);
     }
 
     function withdrawTrusted(
         address asset, address to, uint256 amount, uint256 nonce, uint256 deadline, bytes calldata signature
     ) external nonReentrant {
-        if (!trusted[to]) revert RecipientTrustMismatch();
+        if (paused) revert Paused();
+        if (!trusted(to)) revert RecipientTrustMismatch();
         _authorize(authorizer, authorizerNonceUsed, nonce, deadline,
             keccak256(abi.encode(WITHDRAW_TYPEHASH, asset, to, amount, nonce, deadline, true)), signature);
         _transfer(asset, to, amount);
@@ -142,20 +246,24 @@ contract AuthorizationVault {
     function scheduleWithdrawal(
         address asset, address to, uint256 amount, uint256 nonce, uint256 deadline, bytes calldata signature
     ) external returns (bytes32 requestId) {
+        if (paused) revert Paused();
         if (to == address(0)) revert InvalidAddress();
-        if (trusted[to]) revert RecipientTrustMismatch();
+        if (trusted(to)) revert RecipientTrustMismatch();
         bytes32 structHash = keccak256(abi.encode(WITHDRAW_TYPEHASH, asset, to, amount, nonce, deadline, false));
         _authorize(authorizer, authorizerNonceUsed, nonce, deadline, structHash, signature);
         requestId = keccak256(abi.encode(_domainSeparator(), structHash));
         if (requests[requestId].executableAt != 0) revert RequestExists();
         uint64 executableAt = uint64(block.timestamp) + delay;
         requests[requestId] = Request(asset, to, amount, executableAt, false, false);
+        requestEpoch[requestId] = authorityEpoch;
         emit WithdrawalScheduled(requestId, asset, to, amount, executableAt);
     }
 
     function executeWithdrawal(bytes32 requestId) external nonReentrant {
+        if (paused) revert Paused();
         Request storage request = requests[requestId];
-        if (request.executableAt == 0 || request.cancelled || request.executed) revert RequestMissing();
+        if (request.executableAt == 0 || request.cancelled || request.executed ||
+            requestEpoch[requestId] != authorityEpoch) revert RequestMissing();
         if (block.timestamp < request.executableAt) revert TooEarly();
         request.executed = true;
         _transfer(request.asset, request.to, request.amount);
@@ -182,6 +290,7 @@ contract AuthorizationVault {
     function recover(address asset, uint256 amount, uint256 nonce, uint256 deadline, bytes calldata signature)
         external nonReentrant
     {
+        if (paused) revert Paused();
         _authorize(recoveryAuthorizer, recoveryNonceUsed, nonce, deadline,
             keccak256(abi.encode(RECOVER_TYPEHASH, asset, amount, nonce, deadline)), signature);
         _transfer(asset, recoveryRecipient, amount);
@@ -189,6 +298,16 @@ contract AuthorizationVault {
     }
 
     function domainSeparator() external view returns (bytes32) { return _domainSeparator(); }
+
+    /// @notice Whether account has a trust grant from the current authority epoch.
+    function trusted(address account) public view returns (bool) {
+        return trustedEpoch[account] == authorityEpoch + 1;
+    }
+
+    /// @notice Epoch-specific EIP-712 version ("1:0", "1:1", ...).
+    function VERSION() public view returns (string memory) {
+        return string.concat(BASE_VERSION, ":", _uintString(authorityEpoch));
+    }
 
     modifier nonReentrant() {
         if (locked != 1) revert ReentrantCall();
@@ -213,7 +332,7 @@ contract AuthorizationVault {
     }
 
     function _domainSeparator() private view returns (bytes32) {
-        return keccak256(abi.encode(EIP712_DOMAIN_TYPEHASH, keccak256(bytes(NAME)), keccak256(bytes(VERSION)), block.chainid, address(this)));
+        return keccak256(abi.encode(EIP712_DOMAIN_TYPEHASH, keccak256(bytes(NAME)), keccak256(bytes(VERSION())), block.chainid, address(this)));
     }
 
     function _typedDataHash(bytes32 structHash) private view returns (bytes32) {
@@ -243,6 +362,13 @@ contract AuthorizationVault {
         _callOptionalReturn(token, abi.encodeWithSelector(0x23b872dd, from, to, amount));
     }
 
+    function _balanceOf(address token, address account) private view returns (uint256 balance) {
+        if (token.code.length == 0) revert TransferFailed();
+        (bool ok, bytes memory result) = token.staticcall(abi.encodeWithSelector(0x70a08231, account));
+        if (!ok || result.length != 32) revert TransferFailed();
+        balance = abi.decode(result, (uint256));
+    }
+
     function _callOptionalReturn(address token, bytes memory data) private {
         if (token.code.length == 0) revert TransferFailed();
         (bool ok, bytes memory result) = token.call(data);
@@ -255,5 +381,15 @@ contract AuthorizationVault {
             assembly { returnValue := mload(add(result, 32)) }
             if (returnValue != 1) revert TransferFailed();
         }
+    }
+
+    function _uintString(uint256 value) private pure returns (string memory) {
+        if (value == 0) return "0";
+        uint256 digits;
+        uint256 cursor = value;
+        while (cursor != 0) { digits++; cursor /= 10; }
+        bytes memory out = new bytes(digits);
+        while (value != 0) { out[--digits] = bytes1(uint8(48 + value % 10)); value /= 10; }
+        return string(out);
     }
 }

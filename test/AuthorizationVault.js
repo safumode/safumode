@@ -30,7 +30,7 @@ describe("AuthorizationVault", function () {
     vault = await ethers.deployContract("AuthorizationVault", [authorizer.address, recovery.address, recoveryRecipient.address, delay]);
     token = await ethers.deployContract("MockToken");
     falseToken = await ethers.deployContract("FalseToken");
-    domain = { name: "Authorization Vault Prototype", version: "1", chainId: 31337, verifyingContract: await vault.getAddress() };
+    domain = { name: "Authorization Vault Prototype", version: await vault.VERSION(), chainId: 31337, verifyingContract: await vault.getAddress() };
   });
 
   async function deadline() { return (await ethers.provider.getBlock("latest")).timestamp + 10000; }
