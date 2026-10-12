@@ -39,10 +39,12 @@ async function deploymentAllowlist() {
     .then(async response => {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const manifest = await response.json();
-      if (manifest.schema !== 'safumode-browser-allowlist-v1' || !Array.isArray(manifest.deployments)) throw new Error('invalid schema');
+      if (!manifest || typeof manifest !== 'object' || manifest.schema !== 'safumode-browser-allowlist-v1' || !Array.isArray(manifest.deployments)) throw new Error('invalid schema');
       return manifest.deployments;
     })
-    .catch(error => { console.warn(`Pinned deployment allowlist unavailable: ${errorText(error)}`); return []; });
+    .catch(error => {
+      throw new Error(`Pinned deployment allowlist is unavailable or invalid (${errorText(error)}). Contract identity cannot be verified; refusing to load the preview.`);
+    });
   return allowlistPromise;
 }
 

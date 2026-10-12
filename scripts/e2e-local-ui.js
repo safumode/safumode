@@ -293,6 +293,38 @@ async function main() {
     assert.equal(await unknownPage.$eval('#live-panel button', el => el.disabled), true);
     await unknownPage.close();
 
+    // An available empty manifest means an address can truthfully be reported
+    // absent. An unavailable or invalid manifest is different: fail closed and
+    // show the manifest error instead of silently treating it as an empty list.
+    fs.rmSync(fixturePath);
+    const missingManifestPage = await browser.newPage();
+    await missingManifestPage.goto(webUrl, { waitUntil: 'networkidle0' });
+    await missingManifestPage.$eval('#vault-address', (el, value) => { el.value = value; }, vaultAddress);
+    await missingManifestPage.$eval('#chain-id', (el, value) => { el.value = value; }, CHAIN_ID.toString());
+    await missingManifestPage.$eval('#rpc-url', (el, value) => { el.value = value; }, rpcUrl);
+    await missingManifestPage.click('#load-rpc');
+    await missingManifestPage.waitForFunction(() => document.querySelector('#config-error')?.textContent.includes('allowlist is unavailable or invalid'));
+    const missingManifestError = await missingManifestPage.$eval('#config-error', el => el.textContent);
+    assert.match(missingManifestError, /HTTP 404/);
+    assert.doesNotMatch(missingManifestError, /not present|absent/i);
+    assert.equal(await missingManifestPage.$eval('#live-panel', el => el.hidden), true);
+    await missingManifestPage.close();
+
+    fs.writeFileSync(fixturePath, '{not-json');
+    const malformedManifestPage = await browser.newPage();
+    await malformedManifestPage.goto(webUrl, { waitUntil: 'networkidle0' });
+    await malformedManifestPage.$eval('#vault-address', (el, value) => { el.value = value; }, vaultAddress);
+    await malformedManifestPage.$eval('#chain-id', (el, value) => { el.value = value; }, CHAIN_ID.toString());
+    await malformedManifestPage.$eval('#rpc-url', (el, value) => { el.value = value; }, rpcUrl);
+    await malformedManifestPage.click('#load-rpc');
+    await malformedManifestPage.waitForFunction(() => document.querySelector('#config-error')?.textContent.includes('allowlist is unavailable or invalid'));
+    const malformedManifestError = await malformedManifestPage.$eval('#config-error', el => el.textContent);
+    assert.match(malformedManifestError, /Contract identity cannot be verified; refusing to load the preview/);
+    assert.doesNotMatch(malformedManifestError, /not present|absent/i);
+    assert.equal(await malformedManifestPage.$eval('#live-panel', el => el.hidden), true);
+    await malformedManifestPage.close();
+    fs.writeFileSync(fixturePath, JSON.stringify(fixtureManifest, null, 2));
+
     // Corrupt browser storage must not prevent the configuration UI from loading.
     const corruptStoragePage = await browser.newPage();
     await corruptStoragePage.goto(webUrl, { waitUntil: 'networkidle0' });
@@ -338,7 +370,7 @@ async function main() {
     console.log('PASS local UI end-to-end integration');
     console.log(`  chain: ${network.chainId} (ephemeral Hardhat)`);
     console.log(`  vault: ${vaultAddress}`);
-    console.log('  asserted: pinned identity, refresh-after-rotation revokes verification, stale pending recipient with no trusted claim after pin failure, state/hash mismatch fail-closed, block-consistent status/recipient/activity reads, pause/rotation events, corrupt-storage recovery, RPC warning, signing disabled, unknown address unverified');
+    console.log('  asserted: pinned identity, refresh-after-rotation revokes verification, stale pending recipient with no trusted claim after pin failure, missing/malformed allowlist fail-closed, state/hash mismatch fail-closed, block-consistent status/recipient/activity reads, pause/rotation events, corrupt-storage recovery, RPC warning, signing disabled, unknown address unverified');
   } catch (error) {
     if (node?.output()) console.error(`\nHardhat output:\n${node.output()}`);
     if (web?.output()) console.error(`\nWeb output:\n${web.output()}`);
