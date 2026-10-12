@@ -189,6 +189,13 @@ async function main() {
     page.on('pageerror', error => browserErrors.push(error.message));
     page.on('console', message => { if (message.type() === 'error') browserErrors.push(message.text()); });
     await page.goto(webUrl, { waitUntil: 'networkidle0' });
+    await page.click('label[for="route-untrusted"]');
+    assert.equal(await page.$eval('#route-untrusted', el => el.checked), true);
+    assert.match(await page.$eval('.route-explain.untrusted-copy', el => el.textContent), /Either authority can cancel/);
+    await page.click('label[for="route-recovery"]');
+    assert.equal(await page.$eval('#route-recovery', el => el.checked), true);
+    assert.match(await page.$eval('.gate-one .recovery-copy-label', el => el.textContent), /recovery signature/);
+    assert.notEqual(await page.$eval('.gate-one .recovery-copy-label', el => getComputedStyle(el).display), 'none');
     await page.$eval('#vault-address', (el, value) => { el.value = value; }, vaultAddress);
     await page.$eval('#chain-id', (el, value) => { el.value = value; }, CHAIN_ID.toString());
     await page.$eval('#rpc-url', (el, value) => { el.value = value; }, rpcUrl);

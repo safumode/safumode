@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="SAFUMODE — a read-only, unverified-contract preview for AuthorizationVault." />
-  <meta name="theme-color" content="#0a0b0d" />
-  <title>SAFUMODE — Defensive custody for BNB</title>
+  <meta name="description" content="SAFUMODE is an unaudited, local-first study of separated vault authority and a read-only contract verifier." />
+  <meta name="theme-color" content="#171714" />
+  <title>SAFUMODE — Separate authority, visible limits</title>
   <link rel="icon" href="safumode-mark.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="styles.css" />
   <script src="ethers.min.js?v=6.17.0"></script>
@@ -14,96 +14,85 @@
 <body>
   <a class="skip" href="#main">Skip to content</a>
   <header class="site-header">
-    <a class="brand" href="#top" aria-label="SAFUMODE home">
-      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-      <span>SAFU<b>MODE</b></span>
-    </a>
+    <a class="brand" href="#top" aria-label="SAFUMODE home"><span class="brand-sigil" aria-hidden="true">守</span><span>SAFU<span>MODE</span></span></a>
     <nav aria-label="Primary navigation">
-      <a href="#architecture">Architecture</a>
-      <a href="#recovery">Recovery</a>
-      <a href="#principles">Principles</a>
+      <a href="#model">Model</a><a href="#routing">Routing</a><a href="#recovery">Recovery</a><a href="#prototype">Read-only app</a><a href="#field-notes">Notes</a>
     </nav>
-    <a class="text-button" href="#prototype">Explore prototype <span aria-hidden="true">↘</span></a>
+    <button class="header-notice" type="button" data-open-dialog>Read the notice</button>
   </header>
 
   <main id="main">
     <section class="hero" id="top">
-      <div class="eyebrow"><span class="pulse"></span> Defensive vault concept · BNB Chain</div>
-      <h1>Keep control.<br><em>Contain exposure.</em></h1>
-      <p class="lede">A vault concept where your everyday wallet can fund a vault but cannot authorize its withdrawals. Separate signing and recovery authorities control the exit.</p>
-      <div class="hero-actions">
-        <a class="primary" href="#architecture">See the protection model <span aria-hidden="true">→</span></a>
-        <button class="quiet" type="button" data-open-dialog>Read before exploring</button>
+      <div class="hero-copy">
+        <p class="overline"><span></span>Built for BNB Chain · local prototype</p>
+        <h1>Put distance<br>between <em>use</em><br>and <em>authority.</em></h1>
+        <p class="hero-lede">SAFUMODE explores a vault where the wallet that funds or relays an action does not hold the authority to approve an exit.</p>
+        <div class="hero-links"><a class="button" href="#routing">Trace the two gates <span>↓</span></a><a class="text-link" href="#prototype">Open read-only verifier</a></div>
       </div>
-      <div class="orbit" aria-hidden="true">
-        <div class="orbit-ring ring-one"></div><div class="orbit-ring ring-two"></div>
-        <div class="core"><span>VAULT</span><b>01</b></div>
-        <div class="node node-a">FUNDING WALLET<small>Deposit</small></div>
-        <div class="node node-b">AUTHORIZER<small>Signs exits</small></div>
-        <div class="node node-c">RECOVERY KEY<small>Emergency controls</small></div>
+      <div class="hero-plate" aria-label="Concept summary">
+        <div class="plate-meta"><span>AUTHORITY STUDY / 01</span><span>守 <span class="sr-only">Guard</span></span></div>
+        <div class="plate-rule"></div>
+        <p class="plate-quote">“The device you use every day should not be the last word.”</p>
+        <dl><div><dt>Everyday wallet</dt><dd>Fund + relay</dd></div><div><dt>Exit authority</dt><dd>Approve requests</dd></div><div><dt>Recovery authority</dt><dd>Bounded controls</dd></div></dl>
+        <p class="plate-caption">A design study, not a deployed product. No public deployment or custody service is offered.</p>
       </div>
-      <div class="scroll-note">SCROLL TO TRACE THE SYSTEM <span>↓</span></div>
+      <aside class="truth-strip" aria-label="Project status"><strong>UNAUDITED</strong><span>Local development only</span><span>Signing disabled in this interface</span><span>No endorsed mainnet deployment</span></aside>
     </section>
 
-    <section class="statement" id="architecture">
-      <div class="section-index">01 / THE BOUNDARY</div>
-      <div>
-        <h2>One vault.<br>Two different authorities.</h2>
-        <p>Your <strong>everyday wallet</strong> can fund and relay transactions, but cannot authorize withdrawals. A separate <strong>authorizer</strong> signs withdrawal requests. The recovery authority can recover only to the fixed recipient, cancel pending exits, pause, co-approve trust and rotations, and veto a pending rotation. The current contract is an unaudited prototype.</p>
-      </div>
+    <section class="intro section" id="model">
+      <div class="section-label">01 / OPERATING MODEL</div>
+      <div class="intro-title"><h2>Authority is a boundary,<br>not a promise.</h2></div>
+      <div class="intro-copy"><p>The model assigns narrow jobs to separate roles. The funding wallet can deposit and relay. A withdrawal authorizer approves exits. A recovery authorizer receives specific control powers—but cannot redirect recovery funds away from the recipient fixed at deployment.</p><p class="note">This separation does not make key loss harmless. Lose both current authorities and there is no administrator, support desk, or back door to restore them.</p></div>
     </section>
 
-    <section class="key-grid" aria-label="Key roles">
-      <article class="key-card owner-card">
-        <div class="card-top"><span>01</span><span class="status">OFFLINE BY DEFAULT</span></div>
-        <div class="key-icon owner-icon" aria-hidden="true"><span></span></div>
-        <h3>Funding wallet</h3>
-        <p class="role">THE EVERYDAY WALLET</p>
-        <ul>
-          <li>Deposits assets</li><li>Relays transactions</li><li>Cannot authorize vault withdrawals</li>
-        </ul>
-        <p class="card-note">Keep only daily-use funds outside the vault.</p>
-      </article>
-      <div class="separation"><span>CRYPTographic separation</span><i></i></div>
-      <article class="key-card spend-card">
-        <div class="card-top"><span>02</span><span class="status warm">BOUNDED ACCESS</span></div>
-        <div class="key-icon spend-icon" aria-hidden="true"><span></span></div>
-        <h3>Withdrawal authorizer</h3>
-        <p class="role">SEPARATE SIGNING AUTHORITY</p>
-        <ul>
-          <li>Signs withdrawal requests</li><li>Untrusted exits wait</li><li>Cannot alone add a trusted recipient</li>
-        </ul>
-        <p class="card-note">Keep separate from the funding wallet.</p>
-      </article>
-    </section>
-
-    <section class="recovery" id="recovery">
-      <div class="recovery-copy">
-        <div class="section-index">02 / TRUSTED RECOVERY</div>
-        <h2>Delay the exits that matter.</h2>
-        <p>Withdrawals to untrusted addresses wait for the configured delay. Either authority can cancel a pending exit. Adding a trusted recipient requires both signatures and delayed activation. Either authority can pause; resuming requires both. While paused, rotations cannot be scheduled or activated, but either current authority can still veto a pending rotation. After both authorities resume the vault, an already-matured rotation may activate unless vetoed. Rotation requires both signatures and waits through the delay. A recovery transfer to the fixed recovery recipient is immediate while the vault is unpaused. A local read-only event monitor exists, but no production alert-delivery or on-call service is running.</p>
-        <div class="legend"><span><i class="dot active"></i>Active</span><span><i class="dot wait"></i>Delay</span><span><i class="dot future"></i>Available</span></div>
-      </div>
-      <div class="timeline" aria-label="Example recovery timeline">
-        <div class="timeline-head"><span>UNTRUSTED WITHDRAWAL</span><span>ILLUSTRATIVE UX</span></div>
-        <div class="step complete"><b>1</b><div><strong>Withdrawal scheduled</strong><small>Separate authorizer signs a destination and amount</small></div><time>START</time></div>
-        <div class="step current"><b>2</b><div><strong>Configured delay</strong><small>Recovery signer can cancel before execution</small><div class="progress"><i></i></div></div><time>WAIT</time></div>
-        <div class="step"><b>3</b><div><strong>Executable if not cancelled</strong><small>Anyone can relay the queued withdrawal</small></div><time>LATER</time></div>
-        <div class="warning"><span aria-hidden="true">◇</span><p><strong>Important exception.</strong> A recovery transfer to the fixed recovery recipient is immediate; this timeline does not apply to it.</p></div>
+    <section class="route-lab section" id="routing">
+      <div class="route-heading"><div><div class="section-label">02 / TWO-GATE ROUTING</div><h2>Follow an exit request.</h2></div><p>Choose a route to see which boundary applies. This is an educational model—no chain state is shown and no transaction is created.</p></div>
+      <div class="route-switch" role="group" aria-label="Choose an educational route">
+        <input type="radio" name="route" id="route-trusted" checked><label for="route-trusted"><span>01</span> Trusted recipient</label>
+        <input type="radio" name="route" id="route-untrusted"><label for="route-untrusted"><span>02</span> Untrusted recipient</label>
+        <input type="radio" name="route" id="route-recovery"><label for="route-recovery"><span>03</span> Fixed recovery</label>
+        <div class="route-canvas">
+          <div class="diagram" aria-hidden="true">
+            <div class="source node"><small>REQUEST</small><b>Exit intent</b></div>
+            <div class="track track-a"><i></i><span>GATE 01</span></div>
+            <div class="gate gate-one"><strong>AUTHORITY</strong><small class="trusted-copy">Valid authorizer signature</small><small class="untrusted-copy">Valid authorizer signature</small><small class="recovery-copy-label">Valid recovery signature</small></div>
+            <div class="track track-b"><i></i><span>GATE 02</span></div>
+            <div class="gate gate-two"><strong>POLICY</strong><small class="trusted-copy">Known recipient</small><small class="untrusted-copy">Configured delay</small><small class="recovery-copy-label">Fixed destination</small></div>
+            <div class="track track-c"><i></i></div>
+            <div class="destination node"><small>OUTCOME</small><b class="trusted-copy">Executable route</b><b class="untrusted-copy">Queued; cancellable</b><b class="recovery-copy-label">Immediate recovery</b></div>
+          </div>
+          <div class="route-explain trusted-copy"><span>TRUSTED ROUTE</span><p>The authorizer signs. A recipient already active in the current authority epoch can receive the withdrawal without the untrusted-recipient delay.</p></div>
+          <div class="route-explain untrusted-copy"><span>DELAYED ROUTE</span><p>The authorizer signs, then policy adds the configured waiting period. Either authority can cancel before later execution.</p></div>
+          <div class="route-explain recovery-copy-label"><span>RECOVERY EXCEPTION</span><p>The recovery authority can transfer immediately, only to the immutable recovery recipient, while the vault is unpaused. The withdrawal delay does not apply.</p></div>
+        </div>
       </div>
     </section>
 
-    <section class="prototype" id="prototype">
-      <div class="section-index">03 / INTERFACE STUDY</div>
-      <div class="prototype-head"><h2>Read-only deployment verifier.</h2><p>This interface compares chain, address, runtime bytecode hash, and self-reported state with a static local allowlist. Unknown deployments remain unverified. All signing is disabled.</p></div>
+    <section class="roles section" aria-label="Authority roles">
+      <article><span class="role-no">01</span><p class="role-tag">DAILY SURFACE</p><h3>Funding wallet</h3><p>Deposits and relays transactions. It does not authorize vault withdrawals.</p><ul><li>Keep daily balances limited</li><li>May pay relay gas</li><li>Not an exit signer</li></ul></article>
+      <article class="gold"><span class="role-no">02</span><p class="role-tag">EXIT AUTHORITY</p><h3>Withdrawal key</h3><p>Signs withdrawal requests while remaining separate from the everyday wallet.</p><ul><li>Trusted route can be immediate</li><li>Untrusted route waits</li><li>Cannot alone establish trust</li></ul></article>
+      <article><span class="role-no">03</span><p class="role-tag">BOUNDED RECOVERY</p><h3>Recovery key</h3><p>Pauses, cancels and recovers only to the fixed recovery recipient.</p><ul><li>Co-approves trust and rotation</li><li>Can veto pending rotation</li><li>Cannot choose a new recovery destination</li></ul></article>
+    </section>
+
+    <section class="recovery section" id="recovery">
+      <div><div class="section-label light">03 / RECOVERY LIMITS</div><h2>A recovery path<br>is not a reset button.</h2><p>Recovery is intentionally powerful and intentionally constrained. Its destination is fixed. There is no operator who can change it for you.</p></div>
+      <div class="limit-list">
+        <article><span>CAN</span><h3>Contain an incident</h3><p>Either current authority can pause. Pending withdrawals can be cancelled. A pending rotation can be vetoed.</p></article>
+        <article><span>REQUIRES BOTH</span><h3>Change sensitive policy</h3><p>Resuming, adding a trusted recipient, and scheduling authority rotation require both current authorities.</p></article>
+        <article class="hard-limit"><span>CANNOT</span><h3>Undo permanent loss</h3><p>If both authority keys are lost, the contract provides no administrator recovery. Loss of the fixed recipient key can make recovered assets inaccessible.</p></article>
+      </div>
+    </section>
+
+    <section class="prototype section" id="prototype">
+      <div class="prototype-intro"><div class="section-label">04 / LOCAL INSTRUMENT</div><h2>Inspect, don’t act.</h2><p>This browser tool reads a user-supplied contract and compares chain, address, runtime bytecode hash and reported state with a static local allowlist. Unknown deployments remain unverified. It never signs.</p></div>
       <div class="console">
-        <div class="console-nav"><span class="mini-brand"><i></i>SAFUMODE</span><span class="demo-label" id="connection-label">NOT CONFIGURED</span></div>
+        <div class="console-top"><span><i></i>SAFUMODE / OBSERVER</span><span id="connection-label">NOT CONFIGURED</span></div>
         <div class="console-body">
-          <aside aria-label="Vault tools"><button class="selected" data-panel="status">Unverified status</button><button data-panel="recipients">Recipient check</button><button data-panel="activity">On-chain and control events</button><button data-panel="sign">Signing disabled</button></aside>
+          <aside aria-label="Vault tools"><button class="selected" data-panel="status">Status</button><button data-panel="recipients">Recipient policy</button><button data-panel="activity">Events</button><button data-panel="sign">Signing disabled</button></aside>
           <div class="panel" id="panel" aria-live="polite">
             <section id="configuration"><span class="panel-label">READ-ONLY CONFIGURATION</span><h3>Preview an unverified contract</h3>
-              <div class="field-grid"><label>Vault address<input id="vault-address" spellcheck="false" placeholder="0x…"></label><label>Expected chain ID<input id="chain-id" inputmode="numeric" placeholder="31337"></label><label class="wide">RPC URL (optional; stored only in this browser)<input id="rpc-url" spellcheck="false" placeholder="http://127.0.0.1:8545"></label></div>
-              <div class="tool-actions"><button class="primary small" id="load-rpc">Load read-only</button><button class="quiet dark" id="load-wallet">Use injected wallet network</button><button class="quiet dark" id="clear-config">Clear</button></div>
+              <div class="field-grid"><label>Vault address<input id="vault-address" spellcheck="false" placeholder="0x…"></label><label>Expected chain ID<input id="chain-id" inputmode="numeric" placeholder="31337"></label><label class="wide">RPC URL <small>optional · browser storage only</small><input id="rpc-url" spellcheck="false" placeholder="http://127.0.0.1:8545"></label></div>
+              <div class="tool-actions"><button class="primary small" id="load-rpc">Load read-only</button><button class="quiet dark" id="load-wallet">Use injected network</button><button class="quiet dark" id="clear-config">Clear</button></div>
               <p class="fineprint">The selected wallet provider or RPC supplies chain, bytecode, and state and can fabricate all three. A static-pin match is useful independent comparison, not consensus proof; corroborate with independent providers. RPC URLs may expose your IP. RPC URL query parameters are intentionally ignored.</p><div id="config-error" class="error" role="alert"></div>
             </section>
             <section id="live-panel" hidden></section>
@@ -112,18 +101,15 @@
       </div>
     </section>
 
-    <section class="principles" id="principles">
-      <div class="section-index">04 / DESIGN PRINCIPLES</div>
-      <div class="principle-grid">
-        <article><span>01</span><h3>Least authority</h3><p>Every key receives only the permissions it needs.</p></article>
-        <article><span>02</span><h3>Time to react</h3><p>Untrusted withdrawals wait; the fixed-destination recovery transfer does not.</p></article>
-        <article><span>03</span><h3>Readable state</h3><p>Roles, limits, and pending actions stay explicit.</p></article>
-      </div>
+    <section class="notes section" id="field-notes">
+      <div class="section-label">05 / FIELD NOTES</div><h2>Read the edges<br>before the center.</h2>
+      <div class="notes-grid"><article><span>01</span><h3>RPCs are witnesses, not truth</h3><p>A provider can misreport chain state and code. Compare independently operated sources.</p></article><article><span>02</span><h3>Delay creates reaction time</h3><p>It does not prevent a valid request from becoming executable after its waiting period.</p></article><article><span>03</span><h3>Operations remain human</h3><p>No production alert delivery, response team, relayer, transaction service, or custody service is included.</p></article></div>
+      <a class="back-top" href="#top">Return to top ↑</a>
     </section>
   </main>
 
-  <footer><div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>SAFU<b>MODE</b></span></div><p>Unaudited educational prototype and read-only deployment verifier. All signing is disabled.<br>No transaction relay, deposits, custody, monitoring service, endorsed public deployment, or mainnet deployment is provided.</p><span>© 2026 · PROTOTYPE 01</span></footer>
+  <footer><a class="brand" href="#top"><span class="brand-sigil" aria-hidden="true">守</span><span>SAFU<span>MODE</span></span></a><p><strong>Unaudited educational prototype.</strong><br>Local-only tooling. No endorsed public deployment. All browser signing is disabled.</p><p>BNB-adjacent authority research<br>Prototype 01 · 2026</p></footer>
 
-  <dialog id="notice"><button class="dialog-close" type="button" aria-label="Close">×</button><span class="dialog-kicker">SECURITY NOTICE</span><h2>Read-only verification.</h2><p>A user-supplied RPC can fabricate bytecode and interface responses. Known chain/address pairs are compared with the static allowlist bundled into this site, including runtime bytecode hash and expected state; unknown deployments remain explicitly unverified. A pin match is not consensus proof. All wallet-signing flows are disabled.</p><button class="primary" type="button" data-close-dialog>Understood</button></dialog>
+  <dialog id="notice"><button class="dialog-close" type="button" aria-label="Close">×</button><span class="dialog-kicker">SECURITY NOTICE / 守 <span class="sr-only">Guard</span></span><h2>Observe before you trust.</h2><p>This is unaudited, local-only software—not a custody product or endorsed deployment. A user-supplied RPC can fabricate bytecode and interface responses. Known chain/address pairs are compared with the static allowlist bundled into this site; unknown deployments remain explicitly unverified. A pin match is not consensus proof. All wallet-signing flows are disabled.</p><p>There is no administrator recovery: losing both authority keys can permanently prevent control, and loss of the fixed recovery recipient key can strand recovered assets.</p><button class="primary" type="button" data-close-dialog>Understood</button></dialog>
 </body>
 </html>
