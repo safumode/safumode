@@ -5,6 +5,32 @@ const { createManifest, verifyManifest } = require("../scripts/deployment-manife
 describe("local deployment manifest", function () {
   let vault, manifest, params, signers;
 
+  const Rotate = [
+    { name: "authorizer", type: "address" },
+    { name: "recoveryAuthorizer", type: "address" },
+    { name: "nonce", type: "uint256" },
+    { name: "deadline", type: "uint256" },
+  ];
+
+  async function rotateAuthorities(nextAuthorizer, nextRecovery) {
+    const network = await hre.ethers.provider.getNetwork();
+    const block = await hre.ethers.provider.getBlock("latest");
+    const deadline = block.timestamp + 7200;
+    const value = { authorizer: nextAuthorizer, recoveryAuthorizer: nextRecovery, nonce: 1, deadline };
+    const domain = {
+      name: "Authorization Vault Prototype",
+      version: "1:0",
+      chainId: network.chainId,
+      verifyingContract: await vault.getAddress(),
+    };
+    await vault.scheduleRotation(nextAuthorizer, nextRecovery, 1, deadline,
+      await signers[1].signTypedData(domain, { RotateAuthorities: Rotate }, value),
+      await signers[2].signTypedData(domain, { RotateAuthorities: Rotate }, value));
+    await hre.ethers.provider.send("evm_increaseTime", [Number(params.delay)]);
+    await hre.ethers.provider.send("evm_mine");
+    await vault.activateRotation(1);
+  }
+
   beforeEach(async function () {
     signers = await hre.ethers.getSigners();
     params = {
@@ -40,6 +66,30 @@ describe("local deployment manifest", function () {
     const bad = structuredClone(manifest);
     bad.address = await other.getAddress();
     await expect(verifyManifest(bad, hre.ethers.provider)).to.be.rejectedWith("runtime code hash mismatch");
+  });
+
+  it("accepts the original deployment identity after legitimate authority rotation", async function () {
+    await rotateAuthorities(signers[4].address, signers[5].address);
+    expect(await vault.authorizer()).to.equal(signers[4].address);
+    expect(await vault.recoveryAuthorizer()).to.equal(signers[5].address);
+    await expect(verifyManifest(manifest, hre.ethers.provider)).to.eventually.have.property("address", await vault.getAddress());
+  });
+
+  it("rejects tampered initial authorities using deployment calldata", async function () {
+    await rotateAuthorities(signers[4].address, signers[5].address);
+    const bad = structuredClone(manifest);
+    bad.constructor.authorizer = signers[4].address;
+    await expect(verifyManifest(bad, hre.ethers.provider)).to.be.rejectedWith("deployment transaction constructor mismatch");
+  });
+
+  it("rejects a deployment transaction belonging to another contract", async function () {
+    const other = await hre.ethers.deployContract("AuthorizationVault", Object.values(params));
+    await other.waitForDeployment();
+    const receipt = await other.deploymentTransaction().wait();
+    const bad = structuredClone(manifest);
+    bad.deployment.transactionHash = receipt.hash;
+    bad.deployment.blockNumber = receipt.blockNumber;
+    await expect(verifyManifest(bad, hre.ethers.provider)).to.be.rejectedWith("deployment transaction address mismatch");
   });
 
   it("rejects incorrect constructor parameters even when runtime hash matches", async function () {

@@ -90,6 +90,7 @@ async function main() {
     const recoveryAuthorizer = Wallet.createRandom();
     const recoveryRecipient = Wallet.createRandom();
     const trustedRecipient = Wallet.createRandom();
+    const pendingRecipient = Wallet.createRandom();
     const rotatedAuthorizer = Wallet.createRandom();
     const rotatedRecoveryAuthorizer = Wallet.createRandom();
     const deployer = await provider.getSigner(0); // Hardhat's documented local test account.
@@ -117,6 +118,17 @@ async function main() {
     await provider.send('evm_increaseTime', [Number(delay)]);
     await provider.send('evm_mine', []);
     await (await vault.activateTrust(trustedRecipient.address, 1n)).wait();
+
+    // Leave a second addition pending in epoch zero so authority rotation makes
+    // it stale and the browser can distinguish it from current-epoch policy.
+    const pendingTrustValue = { account: pendingRecipient.address, trusted: true, nonce: 1n, deadline };
+    const [pendingAuthorizerSignature, pendingRecoverySignature] = await Promise.all([
+      authorizer.signTypedData(domain, trustTypes, pendingTrustValue),
+      recoveryAuthorizer.signTypedData(domain, trustTypes, pendingTrustValue)
+    ]);
+    await (await vault.scheduleTrust(
+      pendingRecipient.address, 1n, deadline, pendingAuthorizerSignature, pendingRecoverySignature
+    )).wait();
 
     const pauseTypes = { SetPaused: [
       { name: 'paused', type: 'bool' }, { name: 'nonce', type: 'uint256' }, { name: 'deadline', type: 'uint256' }
@@ -208,11 +220,32 @@ async function main() {
     assert.match(recipientResult, /Trust nonce: 1/);
     assert.match(recipientResult, /No pending trust addition/);
 
-    // Change control-plane state after the initial page load. Querying events
-    // must refresh the status cache so the next status view is not stale.
+    // Change pinned control-plane state after the initial page load. An explicit
+    // refresh must re-check the pin and revoke the earlier verified identity.
     await provider.send('evm_increaseTime', [Number(delay)]);
     await provider.send('evm_mine', []);
     await (await vault.activateRotation(1n)).wait();
+
+    await page.click('[data-panel="status"]');
+    await page.click('#refresh-status');
+    await page.waitForFunction(() => document.querySelector('#connection-label')?.textContent.includes('PIN VERIFICATION FAILED'));
+    const revoked = await page.$eval('#live-panel', el => el.textContent.replace(/\s+/g, ' ').trim());
+    assert.match(revoked, /Contract identity is not verified/);
+    assert.match(revoked, /Pinned identity refresh failed closed/);
+    assert.match(revoked, /Identity verification has been revoked/);
+
+    // Recipient policy and its status/pin verification must share the same
+    // block snapshot. The old pending addition is visible as stale, but a pin
+    // failure must suppress any trusted/untrusted claim.
+    await page.click('[data-panel="recipients"]');
+    await page.$eval('#recipient-address', (el, value) => { el.value = value; }, pendingRecipient.address);
+    await page.click('#check-recipient');
+    await page.waitForFunction(() => document.querySelector('#recipient-result')?.textContent.includes('STALE pending activation'));
+    const staleRecipientResult = await page.$eval('#recipient-result', el => el.textContent.replace(/\s+/g, ' ').trim());
+    assert.match(staleRecipientResult, /Trust status withheld: pinned verification failed/);
+    assert.match(staleRecipientResult, /Trust nonce: 1/);
+    assert.match(staleRecipientResult, /STALE pending activation/);
+    assert.doesNotMatch(staleRecipientResult, /(?:^|\s)(?:UN)?TRUSTED IN CURRENT EPOCH/);
 
     await page.click('[data-panel="activity"]');
     await page.click('#load-events');
@@ -240,6 +273,7 @@ async function main() {
     await page.click('[data-panel="sign"]');
     assert.match(await page.$eval('#live-panel', el => el.textContent), /Signing is disabled even when a pinned deployment identity matches/);
     assert.equal(await page.$eval('#live-panel button', el => el.disabled), true);
+    assert.match(await page.$eval('#connection-label', el => el.textContent), /PIN VERIFICATION FAILED/);
 
     // Identical runtime code at an address absent from the manifest stays unverified.
     const unknown = await factory.deploy(authorizer.address, recoveryAuthorizer.address, recoveryRecipient.address, delay);
@@ -304,7 +338,7 @@ async function main() {
     console.log('PASS local UI end-to-end integration');
     console.log(`  chain: ${network.chainId} (ephemeral Hardhat)`);
     console.log(`  vault: ${vaultAddress}`);
-    console.log('  asserted: pinned identity, state/hash mismatch fail-closed, fresh status/recipient/activity reads, pause/rotation events, corrupt-storage recovery, RPC warning, signing disabled, unknown address unverified');
+    console.log('  asserted: pinned identity, refresh-after-rotation revokes verification, stale pending recipient with no trusted claim after pin failure, state/hash mismatch fail-closed, block-consistent status/recipient/activity reads, pause/rotation events, corrupt-storage recovery, RPC warning, signing disabled, unknown address unverified');
   } catch (error) {
     if (node?.output()) console.error(`\nHardhat output:\n${node.output()}`);
     if (web?.output()) console.error(`\nWeb output:\n${web.output()}`);

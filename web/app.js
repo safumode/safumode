@@ -31,7 +31,7 @@ const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&
 const short = value => value ? `${value.slice(0, 8)}…${value.slice(-6)}` : '—';
 const fmtTime = seconds => new Date(Number(seconds) * 1000).toLocaleString();
 const latestBlockNumber = async provider => Number(BigInt(await provider.send('eth_blockNumber', [])));
-let state = { provider:null, contract:null, address:null, chainId:null, source:null, data:null, identity:null, tab:'status' };
+let state = { provider:null, contract:null, address:null, chainId:null, source:null, data:null, identity:null, pin:null, tab:'status' };
 let allowlistPromise;
 
 async function deploymentAllowlist() {
@@ -66,6 +66,25 @@ function assertPinnedState(pin, actual) {
   if (mismatch) throw new Error(`Pinned deployment state mismatch: ${mismatch[0]}.`);
 }
 
+function verifiedIdentity(pin, code) {
+  const codeHash = ethers.keccak256(code);
+  if (!/^0x[0-9a-fA-F]{64}$/.test(pin.runtimeCodeHash || '')) throw new Error('Pinned manifest has an invalid runtime bytecode hash.');
+  if (codeHash.toLowerCase() !== pin.runtimeCodeHash.toLowerCase()) throw new Error(`Pinned deployment bytecode mismatch. Expected ${pin.runtimeCodeHash}, received ${codeHash}.`);
+  return { pinned:true, verified:true, codeHash, label:pin.label || 'Pinned deployment' };
+}
+
+async function readSnapshot(provider, contract, address, blockTag) {
+  // Pin related reads to one observed block rather than assembling state across blocks.
+  const latestBlock = blockTag ?? await latestBlockNumber(provider);
+  const at = { blockTag:latestBlock };
+  const [code,name,version,authorizer,recoveryAuthorizer,recoveryRecipient,delay,balance,onchainDomain,authorityEpoch,paused] = await Promise.all([
+    provider.getCode(address, latestBlock), contract.NAME(at), contract.VERSION(at), contract.authorizer(at),
+    contract.recoveryAuthorizer(at), contract.recoveryRecipient(at), contract.delay(at), provider.getBalance(address, latestBlock),
+    contract.domainSeparator(at), contract.authorityEpoch(at), contract.paused(at)
+  ]);
+  return { code, data:{name,version,authorizer,recoveryAuthorizer,recoveryRecipient,delay,balance,onchainDomain,authorityEpoch,paused,latestBlock,refreshedAt:new Date()} };
+}
+
 function errorText(error) { return error?.shortMessage || error?.reason || error?.message || String(error); }
 function setError(message='') { $('#config-error').textContent = message; }
 function savedConfig() {
@@ -91,26 +110,19 @@ async function load(source) {
   if (network.chainId !== BigInt(c.chainId)) throw new Error(`Unsupported network: provider is chain ${network.chainId}; expected ${c.chainId}. No signing is available.`);
   const normalizedAddress = ethers.getAddress(c.address);
   const pin = matchingPin(await deploymentAllowlist(), network.chainId, normalizedAddress);
-  const code = await provider.getCode(normalizedAddress);
-  if (code === '0x') throw new Error('No contract bytecode exists at this address on the expected chain.');
   const contract = new ethers.Contract(normalizedAddress, ABI, provider);
-  const [name, version, authorizer, recoveryAuthorizer, recoveryRecipient, delay, balance, onchainDomain, authorityEpoch, paused] = await Promise.all([
-    contract.NAME(), contract.VERSION(), contract.authorizer(), contract.recoveryAuthorizer(), contract.recoveryRecipient(), contract.delay(), provider.getBalance(c.address), contract.domainSeparator(), contract.authorityEpoch(), contract.paused()
-  ]);
+  const { code, data } = await readSnapshot(provider, contract, normalizedAddress);
+  if (code === '0x') throw new Error('No contract bytecode exists at this address on the expected chain.');
+  const { name, version, onchainDomain } = data;
   if (name !== EXPECTED_NAME || !VERSION_PATTERN.test(version)) throw new Error(`Interface response mismatch. Expected “${EXPECTED_NAME}” with version 1:<epoch>. This check does not verify code identity.`);
   const expectedDomain = ethers.TypedDataEncoder.hashDomain({name,version,chainId:network.chainId,verifyingContract:c.address});
   if (onchainDomain.toLowerCase() !== expectedDomain.toLowerCase()) throw new Error('Reported EIP-712 domain is internally inconsistent.');
-  const latestBlock = await latestBlockNumber(provider);
-  const data={name,version,authorizer,recoveryAuthorizer,recoveryRecipient,delay,balance,onchainDomain,authorityEpoch,paused,latestBlock,refreshedAt:new Date()};
   let identity = { pinned:false, verified:false, reason:'Chain and address are not present in the locally bundled allowlist.' };
   if (pin) {
-    const codeHash = ethers.keccak256(code);
-    if (!/^0x[0-9a-fA-F]{64}$/.test(pin.runtimeCodeHash || '')) throw new Error('Pinned manifest has an invalid runtime bytecode hash.');
-    if (codeHash.toLowerCase() !== pin.runtimeCodeHash.toLowerCase()) throw new Error(`Pinned deployment bytecode mismatch. Expected ${pin.runtimeCodeHash}, received ${codeHash}.`);
+    identity = verifiedIdentity(pin, code);
     assertPinnedState(pin, data);
-    identity = { pinned:true, verified:true, codeHash, label:pin.label || 'Pinned deployment' };
   }
-  state={provider,contract,address:normalizedAddress,chainId:network.chainId,source,data,identity,tab:'status'};
+  state={provider,contract,address:normalizedAddress,chainId:network.chainId,source,data,identity,pin,tab:'status'};
   try { localStorage.setItem('safumode-config', JSON.stringify(c)); }
   catch (error) { console.warn(`Configuration could not be saved: ${errorText(error)}`); }
   $('#configuration').hidden=true; $('#live-panel').hidden=false;
@@ -123,6 +135,7 @@ function identityNotice() { const i=state.identity; return i.verified
   : `<div class="danger-note"><strong>Contract identity is not verified.</strong> ${esc(i.reason)} Interface responses are only an untrusted preview and every signing flow is disabled.</div>`; }
 function statusView() { const d=state.data; return `<span class="panel-label">${state.identity.verified?'PINNED IDENTITY · READ ONLY':'UNVERIFIED ON-CHAIN PREVIEW'}</span><h3>${esc(d.name)}</h3>
   ${identityNotice()}
+  <div class="tool-actions"><button class="primary small" id="refresh-status">Refresh and re-verify</button></div><div id="refresh-error" class="error" role="alert"></div>
   <dl class="state-list"><div><dt>Vault / chain</dt><dd title="${state.address}">${short(state.address)} · ${state.chainId}</dd></div><div><dt>Native balance</dt><dd>${ethers.formatEther(d.balance)} native</dd></div><div><dt>Paused</dt><dd>${d.paused?'YES — all outflows blocked':'NO'}</dd></div><div><dt>Authority epoch</dt><dd>${d.authorityEpoch}</dd></div><div><dt>Withdrawal authorizer</dt><dd title="${d.authorizer}">${short(d.authorizer)}</dd></div><div><dt>Recovery authorizer</dt><dd title="${d.recoveryAuthorizer}">${short(d.recoveryAuthorizer)}</dd></div><div><dt>Fixed recovery recipient</dt><dd title="${d.recoveryRecipient}">${short(d.recoveryRecipient)}</dd></div><div><dt>Exit delay</dt><dd>${d.delay} seconds</dd></div><div><dt>EIP-712 domain (unverified)</dt><dd title="${d.onchainDomain}">${short(d.onchainDomain)}</dd></div><div><dt>Status freshness</dt><dd>block ${d.latestBlock} · ${esc(d.refreshedAt.toLocaleString())}</dd></div></dl>
   <p class="fineprint"><strong>RPC trust limit:</strong> the selected wallet provider or RPC supplies the chain ID, bytecode, and state and can lie about all of them. A pin match means those responses match this app's static allowlist; it is not consensus proof. Corroborate with independently operated providers or a block explorer before relying on it. The recovery authority can pause, recover only to the fixed recipient, cancel pending withdrawals, co-approve trust/rotation, and veto a pending rotation. Either authority may pause; both must sign to resume and to schedule rotation.</p>`; }
 function recipientView() { return `<span class="panel-label">DIRECT CONTRACT LOOKUP</span><h3>Check recipient policy</h3><label>Recipient address<input id="recipient-address" spellcheck="false" placeholder="0x…"></label><div class="tool-actions"><button id="check-recipient" class="primary small">Read state</button></div><div id="recipient-result"></div>`; }
@@ -132,16 +145,60 @@ function render() { const live=$('#live-panel'); if (!state.contract) return; li
 function bindPanel() {
   $('#check-recipient')?.addEventListener('click', checkRecipient);
   $('#load-events')?.addEventListener('click', loadEvents);
+  $('#refresh-status')?.addEventListener('click', refreshStatusFromButton);
 
 }
-async function refreshStatus() {
-  const [version,authorizer,recoveryAuthorizer,balance,onchainDomain,authorityEpoch,paused,latestBlock] = await Promise.all([
-    state.contract.VERSION(), state.contract.authorizer(), state.contract.recoveryAuthorizer(), state.provider.getBalance(state.address),
-    state.contract.domainSeparator(), state.contract.authorityEpoch(), state.contract.paused(), latestBlockNumber(state.provider)
-  ]);
-  Object.assign(state.data,{version,authorizer,recoveryAuthorizer,balance,onchainDomain,authorityEpoch,paused,latestBlock,refreshedAt:new Date()});
+async function refreshStatus(blockTag) {
+  let snapshot;
+  try { snapshot = await readSnapshot(state.provider, state.contract, state.address, blockTag); }
+  catch (error) {
+    if (state.pin) {
+      state.identity = { pinned:true, verified:false, reason:`Pinned identity refresh failed closed: ${errorText(error)}` };
+      $('#connection-label').textContent=`PIN VERIFICATION FAILED · CHAIN ${state.chainId} · READ ONLY`;
+    }
+    throw error;
+  }
+  const { code, data } = snapshot;
+  Object.assign(state.data, data);
+  if (state.pin) {
+    try {
+      const identity = verifiedIdentity(state.pin, code);
+      assertPinnedState(state.pin, data);
+      state.identity = identity;
+    } catch (error) {
+      state.identity = { pinned:true, verified:false, reason:`Pinned identity refresh failed closed: ${errorText(error)}` };
+      $('#connection-label').textContent=`PIN VERIFICATION FAILED · CHAIN ${state.chainId} · READ ONLY`;
+      return;
+    }
+  }
+  $('#connection-label').textContent=`${state.identity.verified?'PINNED IDENTITY MATCH':'UNVERIFIED CONTRACT'} · CHAIN ${state.chainId} · READ ONLY`;
 }
-async function checkRecipient() { const out=$('#recipient-result'); try { const a=$('#recipient-address').value.trim(); if(!ethers.isAddress(a)) throw new Error('Enter a valid address.'); out.innerHTML='<p class="loading">Reading…</p>'; const [trusted,nonce,pending,pendingEpoch,currentEpoch]=await Promise.all([state.contract.trusted(a),state.contract.trustNonce(a),state.contract.pendingTrust(a),state.contract.pendingTrustEpoch(a),state.contract.authorityEpoch()]); await refreshStatus(); const valid=pending.executableAt&&pendingEpoch===currentEpoch; out.innerHTML=`<div class="result-card"><strong>${trusted?'TRUSTED IN CURRENT EPOCH':'UNTRUSTED IN CURRENT EPOCH'}</strong><span>Trust nonce: ${nonce}</span><span>${pending.executableAt?`${valid?'Valid':'STALE'} pending activation: ${fmtTime(pending.executableAt)} (nonce ${pending.nonce}, epoch ${pendingEpoch})`:'No pending trust addition'}</span><span>Status refreshed through block ${state.data.latestBlock}. Unverified RPC preview; signing is disabled.</span></div>`; } catch(e){out.innerHTML=`<p class="error">${esc(errorText(e))}</p>`;} }
+async function refreshStatusFromButton() {
+  const button=$('#refresh-status'); button.disabled=true;
+  try {
+    await refreshStatus(); render();
+    if (state.pin && !state.identity.verified) $('#refresh-error').textContent='Refresh detected a pinned identity mismatch. Identity verification has been revoked.';
+  } catch (error) { render(); const out=$('#refresh-error'); if(out) out.textContent=`Refresh failed: ${errorText(error)} Identity verification has been revoked.`; }
+}
+async function checkRecipient() {
+  const out=$('#recipient-result');
+  try {
+    const a=$('#recipient-address').value.trim();
+    if(!ethers.isAddress(a)) throw new Error('Enter a valid address.');
+    out.innerHTML='<p class="loading">Reading…</p>';
+    const blockTag=await latestBlockNumber(state.provider), at={blockTag};
+    const [trusted,nonce,pending,pendingEpoch,currentEpoch]=await Promise.all([
+      state.contract.trusted(a,at), state.contract.trustNonce(a,at), state.contract.pendingTrust(a,at),
+      state.contract.pendingTrustEpoch(a,at), state.contract.authorityEpoch(at)
+    ]);
+    await refreshStatus(blockTag);
+    const valid=pending.executableAt&&pendingEpoch===currentEpoch;
+    const trustClaim=state.pin&&!state.identity.verified
+      ? '<strong>Trust status withheld: pinned verification failed.</strong>'
+      : `<strong>${trusted?'TRUSTED IN CURRENT EPOCH':'UNTRUSTED IN CURRENT EPOCH'}</strong>`;
+    out.innerHTML=`<div class="result-card">${trustClaim}<span>Trust nonce: ${nonce}</span><span>${pending.executableAt?`${valid?'Valid':'STALE'} pending activation: ${fmtTime(pending.executableAt)} (nonce ${pending.nonce}, epoch ${pendingEpoch})`:'No pending trust addition'}</span><span>Status refreshed through block ${blockTag}. Unverified RPC preview; signing is disabled.</span></div>`;
+  } catch(e){out.innerHTML=`<p class="error">${esc(errorText(e))}</p>`;}
+}
 async function loadEvents() { const out=$('#events-result'); out.innerHTML='<p class="loading">Querying unverified contract logs…</p>'; try { const latest=await latestBlockNumber(state.provider), from=Math.max(0,latest-50000); const groups=await Promise.all(EVENT_NAMES.map(name=>state.contract.queryFilter(state.contract.filters[name](),from,latest))); await refreshStatus(); const events=groups.flat().sort((a,b)=>b.blockNumber-a.blockNumber||b.index-a.index).slice(0,100); if(!events.length){out.innerHTML=`<p class="empty">No matching events found in the queried block range. Status refreshed through block ${state.data.latestBlock}.</p>`;return;} out.innerHTML=`<p class="fineprint">Status refreshed through block ${state.data.latestBlock}.</p><ol class="event-list">${events.map(e=>`<li><strong>${esc(e.fragment.name)}</strong><span>block ${e.blockNumber} · tx ${short(e.transactionHash)}</span><code>${esc(e.args.toArray().map(v=>typeof v==='bigint'?v.toString():v).join(' · '))}</code></li>`).join('')}</ol>`; } catch(e){out.innerHTML=`<p class="error">${esc(errorText(e))}</p>`;} }
 document.querySelectorAll('[data-panel]').forEach(button=>button.addEventListener('click',()=>{ if(!state.contract){setError('Configure an unverified contract preview first.');return;} state.tab=button.dataset.panel;document.querySelectorAll('[data-panel]').forEach(b=>b.classList.toggle('selected',b===button));render(); }));
 $('#load-rpc').onclick=()=>load('rpc').catch(e=>setError(errorText(e)));

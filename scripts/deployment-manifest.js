@@ -56,6 +56,14 @@ function normalizeParams(params) {
   };
 }
 
+function deploymentData(artifact, params) {
+  const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
+    ["address", "address", "address", "uint64"],
+    [params.authorizer, params.recoveryAuthorizer, params.recoveryRecipient, params.delay]
+  );
+  return ethers.concat([artifact.bytecode, encoded]);
+}
+
 async function createManifest(contract, params, provider) {
   const address = await contract.getAddress();
   const network = await provider.getNetwork();
@@ -85,6 +93,8 @@ async function verifyManifest(manifest, provider, options = {}) {
   if (network.chainId.toString() !== String(manifest.chainId)) errors.push(`chain ID mismatch: RPC ${network.chainId}, manifest ${manifest.chainId}`);
   let address;
   try { address = ethers.getAddress(manifest.address); } catch (_) { errors.push("invalid manifest address"); }
+  let expected;
+  try { expected = normalizeParams(manifest.constructor || {}); } catch (_) { errors.push("invalid constructor parameters"); }
   if (address) {
     const code = await provider.getCode(address);
     if (code === "0x") errors.push("no code at manifest address");
@@ -92,12 +102,34 @@ async function verifyManifest(manifest, provider, options = {}) {
     if (code !== "0x") {
       const artifact = readJson(artifactPath());
       const vault = new ethers.Contract(address, artifact.abi, provider);
-      const expected = normalizeParams(manifest.constructor || {});
-      const reads = await Promise.allSettled([vault.authorizer(), vault.recoveryAuthorizer(), vault.recoveryRecipient(), vault.delay()]);
-      if (reads.some((r) => r.status === "rejected")) errors.push("contract constructor-state reads failed");
-      else {
-        const actual = normalizeParams({ authorizer: reads[0].value, recoveryAuthorizer: reads[1].value, recoveryRecipient: reads[2].value, delay: reads[3].value });
-        for (const key of Object.keys(expected)) if (actual[key] !== expected[key]) errors.push(`constructor parameter mismatch: ${key}`);
+      const reads = await Promise.allSettled([vault.recoveryRecipient(), vault.delay()]);
+      if (reads.some((r) => r.status === "rejected")) errors.push("contract immutable-state reads failed");
+      else if (expected) {
+        const actual = { recoveryRecipient: ethers.getAddress(reads[0].value), delay: BigInt(reads[1].value).toString() };
+        for (const key of Object.keys(actual)) if (actual[key] !== expected[key]) errors.push(`constructor parameter mismatch: ${key}`);
+      }
+
+      // The authorities are mutable. Prove their initial values, along with all
+      // constructor parameters, from the successful creation transaction. This
+      // preserves deployment identity without rejecting legitimate rotations.
+      const deployment = manifest.deployment || {};
+      if (!ethers.isHexString(deployment.transactionHash, 32)) {
+        errors.push("invalid deployment transaction hash");
+      } else {
+        const [tx, receipt] = await Promise.all([
+          provider.getTransaction(deployment.transactionHash),
+          provider.getTransactionReceipt(deployment.transactionHash),
+        ]);
+        if (!tx || !receipt) errors.push("deployment transaction not found on chain");
+        else {
+          if (tx.to !== null) errors.push("deployment transaction is not contract creation");
+          if (receipt.status !== 1) errors.push("deployment transaction was not successful");
+          if (!receipt.contractAddress || ethers.getAddress(receipt.contractAddress) !== address) errors.push("deployment transaction address mismatch");
+          if (deployment.blockNumber == null || Number(deployment.blockNumber) !== receipt.blockNumber) errors.push("deployment block number mismatch");
+          if (expected && ethers.keccak256(tx.data) !== ethers.keccak256(deploymentData(artifact, expected))) {
+            errors.push("deployment transaction constructor mismatch");
+          }
+        }
       }
     }
   }
