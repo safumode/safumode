@@ -8,6 +8,7 @@
   <title>SAFUMODE — Separate authority, visible limits</title>
   <link rel="icon" href="safumode-mark.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="styles.css?v=ledger-flow-1" />
+  <link rel="stylesheet" href="hero.css?v=scene-1" />
   <script src="ethers.min.js?v=6.17.0"></script>
   <script src="app.js?v=7" defer></script>
 </head>
@@ -29,12 +30,21 @@
         <p class="hero-lede">SAFUMODE separates the wallet you use every day from the key that approves withdrawals. If your daily wallet is compromised, it cannot take funds from the vault by itself. A separate key must approve the exit.</p>
         <div class="hero-links"><a class="button" href="#ledger">See how it works <span>↓</span></a><a class="text-link" href="#prototype">Explore the read-only tool</a></div>
       </div>
-      <div class="hero-plate" aria-label="Concept summary">
-        <div class="plate-meta"><span>HOW THE VAULT WORKS</span><span>守 <span class="sr-only">Guard</span></span></div>
-        <div class="plate-rule"></div>
-        <p class="plate-quote">“Putting money in and taking money out should require different keys.”</p>
-        <dl><div><dt>Daily wallet</dt><dd>Deposits; cannot approve exits</dd></div><div><dt>Separate key</dt><dd>Approves withdrawals</dd></div><div><dt>Recovery key</dt><dd>Can pause or recover to a fixed address</dd></div></dl>
-        <p class="plate-caption">The public site is an explanation and read-only tool, not a live vault. No public deployment or custody service is offered.</p>
+      <div class="hero-plate" aria-label="Illustration: the daily wallet can deposit but only a separate key can approve an exit">
+        <div class="scene-top"><span>THE SAFUMODE MODEL</span><span class="scene-live"><i></i> ILLUSTRATION</span></div>
+        <div class="vault-scene" aria-hidden="true">
+          <div class="scene-halo"></div>
+          <div class="scene-node scene-wallet"><div class="scene-symbol">◈</div><span>01 / DAILY WALLET</span><strong>Everyday access</strong></div>
+          <div class="scene-path scene-path-in"><span class="scene-particle"></span></div>
+          <div class="scene-vault"><div class="vault-rim"><div class="vault-door"><span class="vault-mark">守</span><span class="vault-center"></span></div></div><span class="vault-label">FUNDS INSIDE</span></div>
+          <div class="scene-path scene-path-out"><span class="scene-particle"></span></div>
+          <div class="scene-node scene-exit"><div class="scene-symbol">↗</div><span>03 / WITHDRAWAL</span><strong>Separate approval</strong></div>
+          <div class="scene-denied"><span>×</span> WALLET ALONE CAN’T OPEN THE VAULT</div>
+          <div class="scene-ledger"><span class="ledger-sign">✓</span><span>02 / SEPARATE KEY</span><strong>Approve on your own device</strong></div>
+          <div class="scene-key-path"></div>
+        </div>
+        <div class="scene-bottom"><span><b>01</b> Put funds in</span><span><b>02</b> Approve separately</span><span><b>03</b> Funds leave</span></div>
+        <p class="scene-disclosure">A visual explanation, not a live transaction. This website cannot connect a Ledger or hold funds.</p>
       </div>
       <aside class="truth-strip" aria-label="Project status"><strong>UNAUDITED</strong><span>Local development only</span><span>Signing disabled in this interface</span><span>No endorsed mainnet deployment</span></aside>
     </section>
