@@ -147,6 +147,8 @@ class Monitor {
     for (const tx of before.transactions) {
       const hash = typeof tx === "string" ? tx : tx.hash;
       const receipt = await this.provider.getTransactionReceipt(hash); if (!receipt) fatal(`RPC omitted receipt in block ${number}`);
+      const receiptHash = receipt.hash || receipt.transactionHash;
+      if (!receiptHash || receiptHash.toLowerCase() !== hash.toLowerCase()) fatal(`RPC returned receipt for wrong transaction in block ${number}`);
       if (receipt.blockNumber !== number || receipt.blockHash.toLowerCase() !== before.hash.toLowerCase()) fatal(`RPC returned inconsistent receipt in block ${number}`);
       for (const log of receipt.logs) if (log.address.toLowerCase() === this.o.address.toLowerCase() && log.topics[0] && topicSet.has(log.topics[0].toLowerCase())) expected.push(log);
     }

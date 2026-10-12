@@ -16,8 +16,14 @@ class FaultProvider {
   getNetwork() { return this.base.getNetwork(); }
   getCode(a) { return this.base.getCode(a); }
   getBlockNumber() { return this.base.getBlockNumber(); }
-  getTransactionReceipt(h) { return this.base.getTransactionReceipt(h); }
-  async getLogs(filter) { const logs = await this.base.getLogs(filter); if (this.fault === "omit") return []; if (this.fault === "race") this.afterLogs = filter.fromBlock; return logs; }
+  async getTransactionReceipt(h) {
+    const receipt = await this.base.getTransactionReceipt(h);
+    if (this.fault === "wrong-receipt" && receipt.logs.some((log) => log.address)) {
+      return { ...receipt, hash: `0x${"cd".repeat(32)}`, transactionHash: `0x${"cd".repeat(32)}`, logs: [] };
+    }
+    return receipt;
+  }
+  async getLogs(filter) { const logs = await this.base.getLogs(filter); if (this.fault === "omit" || this.fault === "wrong-receipt") return []; if (this.fault === "race") this.afterLogs = filter.fromBlock; return logs; }
   async getBlock(n) { const block = await this.base.getBlock(n); if (this.fault === "race" && this.afterLogs === n) { this.afterLogs = null; return { ...block, hash: `0x${"ab".repeat(32)}` }; } return block; }
 }
 
@@ -56,6 +62,14 @@ describe("SAFUMODE monitor e2e (ephemeral Hardhat chain)", function () {
     expect(error.message).to.match(/log\/receipt inconsistency/); expect(JSON.parse(fs.readFileSync(f.checkpoint)).nextBlock).to.equal(f.eventBlock);
     const capture = new Capture(); await new Monitor(f.options, ethers.provider, capture).run();
     expect(capture.records().some((r) => r.event === "WithdrawalScheduled")).to.equal(true); fs.rmSync(f.dir, { recursive: true, force: true });
+  });
+
+  it("rejects a receipt that does not belong to the requested block transaction", async function () {
+    const f = await fixture(17, 95); const error = await rejectedRun(f.options, new FaultProvider(ethers.provider, "wrong-receipt"));
+    expect(error.message).to.match(/receipt for wrong transaction/);
+    expect(JSON.parse(fs.readFileSync(f.checkpoint)).nextBlock).to.equal(f.eventBlock);
+    const capture = new Capture(); await new Monitor(f.options, ethers.provider, capture).run();
+    expect(capture.records().filter((r) => r.event === "WithdrawalScheduled")).to.have.length(1); fs.rmSync(f.dir, { recursive: true, force: true });
   });
 
   it("detects a log/header reorg race and retries after restart", async function () {
