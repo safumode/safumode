@@ -35,7 +35,12 @@ function uint(value, name) {
 function address(value, name) { try { return ethers.getAddress(value); } catch (_) { fail(`${name} must be a valid address`); } }
 function loadManifest(fileOrObject) {
   const m = typeof fileOrObject === "string" ? JSON.parse(fs.readFileSync(fileOrObject, "utf8")) : fileOrObject;
-  if (!m || !["safumode-local-deployment-v1", "safumode-deployment-v1"].includes(m.schema)) fail("unsupported deployment manifest schema");
+  // Preparing is local-only too: a signature can be dangerous even if this
+  // process never relays it. Do not let a similarly shaped production manifest
+  // turn an offline local drill into a valid authorization for a real chain.
+  if (!m || m.schema !== "safumode-local-deployment-v1") fail("unsupported deployment manifest schema; a local deployment manifest is required");
+  if (m.environment !== "hardhat-local-only") fail("manifest is not marked hardhat-local-only");
+  if (uint(m.chainId, "manifest chainId") !== LOCAL_CHAIN_ID.toString()) fail(`manifest chain must be local Hardhat ${LOCAL_CHAIN_ID}`);
   if (!m.build || !ethers.isHexString(m.build.fingerprint, 32)) fail("manifest is not pinned to a build fingerprint");
   let localBuild;
   try { localBuild = loadBuildIdentity(); } catch (error) { fail(`cannot verify local build fingerprint: ${error.message}`); }

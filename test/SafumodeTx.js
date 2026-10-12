@@ -81,6 +81,15 @@ describe("SAFUMODE offline preparation and guarded relay", function () {
     const bad=structuredClone(manifest); bad.build.fingerprint="0x"+"00".repeat(32);
     expect(()=>prepare(bad,"schedule",{asset:ethers.ZeroAddress,to:target.address,amount:1,nonce:1,deadline:"1"})).to.throw("does not match local artifacts");
   });
+  it("refuses to prepare signatures from non-local deployment manifests",async function(){
+    const input={asset:ethers.ZeroAddress,to:target.address,amount:1,nonce:1,deadline:await deadline()};
+    const nonLocalSchema=structuredClone(manifest); nonLocalSchema.schema="safumode-deployment-v1";
+    expect(()=>prepare(nonLocalSchema,"schedule",input)).to.throw("local deployment manifest is required");
+    const nonLocalEnvironment=structuredClone(manifest); nonLocalEnvironment.environment="production";
+    expect(()=>prepare(nonLocalEnvironment,"schedule",input)).to.throw("not marked hardhat-local-only");
+    const nonLocalChain=structuredClone(manifest); nonLocalChain.chainId="1";
+    expect(()=>prepare(nonLocalChain,"schedule",input)).to.throw("chain must be local Hardhat 31337");
+  });
   it("requires an explicit relay URL",async function(){
     const x=await signed("schedule",{asset:ethers.ZeroAddress,to:target.address,amount:1,nonce:1,deadline:await deadline()});
     await expect(relay(x.bundle,manifest,x.signatures,ethers.provider,null,{dryRun:true})).to.be.rejectedWith("rpcUrl is required");
