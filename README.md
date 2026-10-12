@@ -60,6 +60,18 @@ The integration command compiles the existing contract, chooses unused localhost
 
 The test never reads a private-key environment variable, contacts a public RPC, or uses mainnet. Hardhat's local deployer is a publicly known development account; all vault authorities are newly generated test-only wallets and are never persisted. Chrome is discovered in common locations; set `CHROME_PATH` if it is installed elsewhere.
 
+### Local operator drill
+
+Run the complete transaction lifecycle against an ephemeral in-process Hardhat chain:
+
+```sh
+npm run operator:drill
+```
+
+The drill deploys and funds a fresh vault, creates throwaway authority and recipient keys in memory, prepares EIP-712 typed data, signs it with offline `Wallet` objects, and uses a separate unlocked Hardhat development account only as the local relayer. It asserts each state transition while exercising trust scheduling and activation, recovery-authority pause, two-authority resume, trusted withdrawal, delayed withdrawal scheduling and cancellation, fixed-recipient recovery, and delayed authority rotation. It prints a non-secret run summary on success. `npm run test:drill` runs the same scenario as a focused test.
+
+The command is intentionally constrained to Hardhat chain ID `31337`; relay validation accepts only a loopback URL and verifies the checked-out build fingerprint and deployed runtime. It does not read environment private keys, persist generated keys, start or contact an external RPC, or use a user wallet. Every invocation begins from a fresh in-process Hardhat network, so the drill is reproducible and leaves no deployment behind.
+
 ### Reproducible local deployment manifest
 
 This workflow accepts only chain ID `31337` and loopback RPC verification. It uses Hardhat's public development accounts (deployer account 0; constructor roles accounts 1–3), never a user wallet. Start a clean node, then deploy and verify in other terminals:

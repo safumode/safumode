@@ -16,7 +16,9 @@
     "test:manifest": "hardhat test test/DeploymentManifest.js",
     "tx:prepare": "node scripts/safumode-cli.js prepare",
     "tx:relay": "node scripts/safumode-cli.js relay",
-    "test:tx": "hardhat test test/SafumodeTx.js"
+    "test:tx": "hardhat test test/SafumodeTx.js",
+    "operator:drill": "hardhat run scripts/operator-drill.js --network hardhat",
+    "test:drill": "hardhat test test/OperatorDrill.js"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
