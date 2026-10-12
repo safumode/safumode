@@ -8,6 +8,8 @@
     "build": "node web/build.js",
     "compile": "hardhat compile",
     "test": "hardhat test",
+    "safumode": "node scripts/safumode-monitor.js",
+    "test:safumode": "hardhat test test/SafumodeMonitor.e2e.js",
     "test:e2e:ui": "hardhat compile && node scripts/e2e-local-ui.js"
   },
   "devDependencies": {
