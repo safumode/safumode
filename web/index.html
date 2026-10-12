@@ -9,7 +9,7 @@
   <link rel="icon" href="safumode-mark.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="styles.css" />
   <script src="ethers.min.js?v=6.17.0"></script>
-  <script src="app.js?v=2" defer></script>
+  <script src="app.js?v=3" defer></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -95,7 +95,7 @@
 
     <section class="prototype" id="prototype">
       <div class="section-index">03 / INTERFACE STUDY</div>
-      <div class="prototype-head"><h2>Read-only unverified-contract preview.</h2><p>This interface displays responses from an explicitly configured RPC. It cannot establish deployed code identity. With no independently pinned deployment manifest, all signing is disabled.</p></div>
+      <div class="prototype-head"><h2>Read-only deployment verifier.</h2><p>This interface compares chain, address, runtime bytecode hash, and self-reported state with a static local allowlist. Unknown deployments remain unverified. All signing is disabled.</p></div>
       <div class="console">
         <div class="console-nav"><span class="mini-brand"><i></i>SAFUMODE</span><span class="demo-label" id="connection-label">NOT CONFIGURED</span></div>
         <div class="console-body">
@@ -104,7 +104,7 @@
             <section id="configuration"><span class="panel-label">READ-ONLY CONFIGURATION</span><h3>Preview an unverified contract</h3>
               <div class="field-grid"><label>Vault address<input id="vault-address" spellcheck="false" placeholder="0x…"></label><label>Expected chain ID<input id="chain-id" inputmode="numeric" placeholder="31337"></label><label class="wide">RPC URL (optional; stored only in this browser)<input id="rpc-url" spellcheck="false" placeholder="http://127.0.0.1:8545"></label></div>
               <div class="tool-actions"><button class="primary small" id="load-rpc">Load read-only</button><button class="quiet dark" id="load-wallet">Use injected wallet network</button><button class="quiet dark" id="clear-config">Clear</button></div>
-              <p class="fineprint">The chain ID must match the provider, but neither it nor RPC-returned bytecode proves contract identity. RPC URLs may expose your IP. RPC URL query parameters are intentionally ignored.</p><div id="config-error" class="error" role="alert"></div>
+              <p class="fineprint">The selected wallet provider or RPC supplies chain, bytecode, and state and can fabricate all three. A static-pin match is useful independent comparison, not consensus proof; corroborate with independent providers. RPC URLs may expose your IP. RPC URL query parameters are intentionally ignored.</p><div id="config-error" class="error" role="alert"></div>
             </section>
             <section id="live-panel" hidden></section>
           </div>

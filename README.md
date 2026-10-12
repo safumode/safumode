@@ -30,7 +30,7 @@ A recovery-authorizer-signed recovery sends assets only to the immutable `recove
 
 The static UI accepts a vault address, expected chain ID, and either an explicit RPC URL or injected provider. It reads authorities, native balance, pause state, authority epoch, recipient trust state, and recent events. It checks the reported name/version and internal EIP-712 domain consistency.
 
-Those checks **do not authenticate deployed bytecode**. A user-selected or malicious RPC can fabricate code and responses. There is no independently pinned deployment manifest, chain/address registry, or expected runtime-bytecode hash. Consequently:
+Those checks **do not authenticate deployed bytecode**. A user-selected or malicious RPC can fabricate code and responses. The repository's deployment manifest workflow is deliberately local-only and is not consumed by the UI or a public-chain registry. Consequently:
 
 - all signing and transaction flows are disabled;
 - displayed values are explicitly an unverified RPC preview;
@@ -60,12 +60,27 @@ The integration command compiles the existing contract, chooses unused localhost
 
 The test never reads a private-key environment variable, contacts a public RPC, or uses mainnet. Hardhat's local deployer is a publicly known development account; all vault authorities are newly generated test-only wallets and are never persisted. Chrome is discovered in common locations; set `CHROME_PATH` if it is installed elsewhere.
 
+### Reproducible local deployment manifest
+
+This workflow accepts only chain ID `31337` and loopback RPC verification. It uses Hardhat's public development accounts (deployer account 0; constructor roles accounts 1–3), never a user wallet. Start a clean node, then deploy and verify in other terminals:
+
+```sh
+npx hardhat node
+npm run manifest:deploy:local
+npm run manifest:verify:local
+npm run test:manifest
+```
+
+The default file is `deployments/hardhat-local.json`. Override output with `SAFUMODE_MANIFEST`; pass a manifest path and loopback URL to verification as positional arguments, for example `node scripts/verify-local-manifest.js ./copy.json http://localhost:8545`. `SAFUMODE_LOCAL_DELAY` may override the default `3600` seconds and is recorded in the manifest.
+
+The manifest pins chain ID, checksum address, actual runtime-code Keccak-256, normalized constructor parameters, deployment transaction/block, full solc build version/settings, compiler-input and source hashes, bytecode-template hashes, lockfile hash, and an aggregate build fingerprint. Verification checks the RPC chain and runtime, reads immutable/initial constructor state from the contract, and compares the checked-out local build. It fails closed on mismatch. This is reproducibility evidence for an ephemeral test chain—not an audit, public deployment attestation, or defense against a malicious RPC.
+
 ## Release limitations
 
 This is a prototype release, not a security product:
 
 - no professional audit, formal verification, bug bounty, or production hardening;
-- no mainnet/testnet deployment, deployment tooling, verified artifact, or pinned UI manifest;
+- no mainnet/testnet deployment, public verified artifact, or pinned UI manifest (only local test-chain manifest tooling);
 - no transaction-building/signing UI, relayer, indexer, alerting, continuous monitoring, or incident-response service;
 - no upgrade or mutable administrator path; constructor choices (including delay and recovery recipient) are permanent;
 - rotation requires both surviving current authorities and cannot recover a lost authority;

@@ -1,0 +1,36 @@
+{
+  "schema": "safumode-local-deployment-v1",
+  "environment": "hardhat-local-only",
+  "chainId": "31337",
+  "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  "runtimeCodeHash": "0x3469338e09428dc443cf4c626f1cc057eaa26fb931d0b246d036a9072bb4f054",
+  "constructor": {
+    "authorizer": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "recoveryAuthorizer": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+    "recoveryRecipient": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+    "delay": "3600"
+  },
+  "deployment": {
+    "transactionHash": "0xcdf6fa7419bf9284bfeed692bc17b5ec2f3569a6bf844c571df500a26f47bbb4",
+    "blockNumber": 1
+  },
+  "build": {
+    "contract": "contracts/AuthorizationVault.sol:AuthorizationVault",
+    "compiler": {
+      "version": "0.8.24+commit.e11b9ed9",
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "evmVersion": "paris"
+    },
+    "compilerInputHash": "0xae6b48363fe2af0bffa583a0cf01d6a7784b27ff09488371fe6beba3023daa3f",
+    "sources": {
+      "contracts/AuthorizationVault.sol": "0x7735464c1ac92efe9826693ad9d42dca0aa0564b6b56d115315dca9cb82a6d5f"
+    },
+    "packageLockSha256": "0x7ed62664caee638d5bfcfe8d58e6cdbc5c6a14b147a5219a4f4c487b3db69a36",
+    "creationBytecodeHash": "0x9cb67b03a46a1814ac71a78c9ab6c0fad1807050b42ee929b36cb8f1e69abb44",
+    "deployedBytecodeTemplateHash": "0xa14bc3b01f9d4c6402eafecb83836ed0874603526cf72cee0579716fbb7845e1",
+    "fingerprint": "0x461595a6224670b6d02a0399cb32c88f1fdf8408fc2669a9955e4daa8615b667"
+  }
+}

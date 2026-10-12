@@ -5,10 +5,12 @@
 // an ephemeral Hardhat JSON-RPC process, deploys/funds/configures the vault, and
 // drives the real browser UI. No environment key or public RPC is read.
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const net = require('node:net');
+const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { JsonRpcProvider, ContractFactory, Wallet, parseEther } = require('ethers');
+const { JsonRpcProvider, ContractFactory, Wallet, parseEther, keccak256 } = require('ethers');
 const puppeteer = require('puppeteer-core');
 const artifact = require('../artifacts/contracts/AuthorizationVault.sol/AuthorizationVault.json');
 
@@ -77,6 +79,7 @@ async function main() {
   let node;
   let web;
   let browser;
+  let fixtureDirectory;
   try {
     node = start(process.execPath, [path.join(ROOT, 'node_modules/hardhat/internal/cli/cli.js'), 'node', '--hostname', LOCAL_HOST, '--port', String(rpcPort)]);
     const provider = new JsonRpcProvider(rpcUrl);
@@ -128,7 +131,24 @@ async function main() {
     assert.equal(expected.trusted, true);
     assert.equal(expected.paused, true);
 
-    web = start(process.execPath, [path.join(ROOT, 'web/dev.js')], { env: { ...process.env, PORT: String(webPort) } });
+    // Generated, test-only pin. web/deployment-allowlist.json remains empty.
+    fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'safumode-browser-allowlist-'));
+    const fixturePath = path.join(fixtureDirectory, 'deployment-allowlist.json');
+    const fixtureManifest = {
+      schema: 'safumode-browser-allowlist-v1',
+      deployments: [{
+        label: 'ephemeral browser-test fixture', chainId: CHAIN_ID.toString(), address: vaultAddress,
+        runtimeCodeHash: keccak256(await provider.getCode(vaultAddress)),
+        state: {
+          name: await vault.NAME(), version: await vault.VERSION(), authorizer: expected.authorizer,
+          recoveryAuthorizer: expected.recoveryAuthorizer, recoveryRecipient: expected.recoveryRecipient,
+          delay: delay.toString()
+        }
+      }]
+    };
+    fs.writeFileSync(fixturePath, JSON.stringify(fixtureManifest, null, 2));
+
+    web = start(process.execPath, [path.join(ROOT, 'web/dev.js')], { env: { ...process.env, PORT: String(webPort), SAFUMODE_TEST_ALLOWLIST: fixturePath } });
     await waitFor(async () => (await fetch(webUrl)).ok, 'local web server');
 
     browser = await puppeteer.launch({ executablePath: chromePath(), headless: true, args: ['--no-sandbox'] });
@@ -142,6 +162,11 @@ async function main() {
     await page.$eval('#rpc-url', (el, value) => { el.value = value; }, rpcUrl);
     await page.click('#load-rpc');
     await page.waitForSelector('#live-panel:not([hidden]) .state-list');
+
+    const identity = await page.$eval('#live-panel', el => el.textContent.replace(/\s+/g, ' ').trim());
+    assert.match(identity, /PINNED DEPLOYMENT IDENTITY MATCH/);
+    assert.match(identity, /RPC trust limit/);
+    assert.match(await page.$eval('#connection-label', el => el.textContent), /PINNED IDENTITY MATCH/);
 
     const displayed = await page.$$eval('.state-list > div', rows => Object.fromEntries(rows.map(row => [row.querySelector('dt').textContent.trim(), {
       text: row.querySelector('dd').textContent.trim(), title: row.querySelector('dd').getAttribute('title')
@@ -163,12 +188,48 @@ async function main() {
     assert.match(recipientResult, /TRUSTED IN CURRENT EPOCH/);
     assert.match(recipientResult, /Trust nonce: 1/);
     assert.match(recipientResult, /No pending trust addition/);
+
+    await page.click('[data-panel="sign"]');
+    assert.match(await page.$eval('#live-panel', el => el.textContent), /Signing is disabled even when a pinned deployment identity matches/);
+    assert.equal(await page.$eval('#live-panel button', el => el.disabled), true);
+
+    // Identical runtime code at an address absent from the manifest stays unverified.
+    const unknown = await factory.deploy(authorizer.address, recoveryAuthorizer.address, recoveryRecipient.address, delay);
+    await unknown.waitForDeployment();
+    const unknownPage = await browser.newPage();
+    await unknownPage.goto(webUrl, { waitUntil: 'networkidle0' });
+    await unknownPage.$eval('#vault-address', (el, value) => { el.value = value; }, await unknown.getAddress());
+    await unknownPage.$eval('#chain-id', (el, value) => { el.value = value; }, CHAIN_ID.toString());
+    await unknownPage.$eval('#rpc-url', (el, value) => { el.value = value; }, rpcUrl);
+    await unknownPage.click('#load-rpc');
+    await unknownPage.waitForSelector('#live-panel:not([hidden]) .state-list');
+    const unknownIdentity = await unknownPage.$eval('#live-panel', el => el.textContent.replace(/\s+/g, ' ').trim());
+    assert.match(unknownIdentity, /Contract identity is not verified/);
+    assert.match(unknownIdentity, /not present in the locally bundled allowlist/);
+    assert.match(await unknownPage.$eval('#connection-label', el => el.textContent), /UNVERIFIED CONTRACT/);
+    await unknownPage.click('[data-panel="sign"]');
+    assert.equal(await unknownPage.$eval('#live-panel button', el => el.disabled), true);
+    await unknownPage.close();
+
+    // A pinned address with any other runtime hash must fail closed rather than
+    // quietly falling back to an unverified display.
+    fixtureManifest.deployments[0].runtimeCodeHash = `0x${'00'.repeat(32)}`;
+    fs.writeFileSync(fixturePath, JSON.stringify(fixtureManifest, null, 2));
+    const mismatchPage = await browser.newPage();
+    await mismatchPage.goto(webUrl, { waitUntil: 'networkidle0' });
+    await mismatchPage.$eval('#vault-address', (el, value) => { el.value = value; }, vaultAddress);
+    await mismatchPage.$eval('#chain-id', (el, value) => { el.value = value; }, CHAIN_ID.toString());
+    await mismatchPage.$eval('#rpc-url', (el, value) => { el.value = value; }, rpcUrl);
+    await mismatchPage.click('#load-rpc');
+    await mismatchPage.waitForFunction(() => document.querySelector('#config-error')?.textContent.includes('bytecode mismatch'));
+    assert.equal(await mismatchPage.$eval('#live-panel', el => el.hidden), true);
+    await mismatchPage.close();
     assert.deepEqual(browserErrors, [], `Browser errors: ${browserErrors.join('; ')}`);
 
     console.log('PASS local UI end-to-end integration');
     console.log(`  chain: ${network.chainId} (ephemeral Hardhat)`);
     console.log(`  vault: ${vaultAddress}`);
-    console.log('  asserted: authorities, 1.25 native balance, paused=true, epoch=0, trusted recipient=true');
+    console.log('  asserted: pinned chain/address/code/state match, hash mismatch fail-closed, RPC warning, signing disabled, unknown address unverified');
   } catch (error) {
     if (node?.output()) console.error(`\nHardhat output:\n${node.output()}`);
     if (web?.output()) console.error(`\nWeb output:\n${web.output()}`);
@@ -176,6 +237,7 @@ async function main() {
   } finally {
     if (browser) await browser.close();
     await Promise.all([stop(web), stop(node)]);
+    if (fixtureDirectory) fs.rmSync(fixtureDirectory, { recursive: true, force: true });
   }
 }
 
