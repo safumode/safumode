@@ -4,6 +4,7 @@
 // SAFUMODE is deliberately provider-only: it has no signer and performs no RPC writes.
 const fs = require("fs");
 const path = require("path");
+const { randomBytes } = require("crypto");
 const { JsonRpcProvider, Interface, getAddress, keccak256 } = require("ethers");
 
 const ABI = [
@@ -91,9 +92,25 @@ function argsObject(parsed) {
 }
 function atomicSave(file, state) {
   fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true, mode: 0o700 });
-  const tmp = `${file}.${process.pid}.tmp`; const fd = fs.openSync(tmp, "w", 0o600);
-  try { fs.writeFileSync(fd, json(state) + "\n"); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-  fs.renameSync(tmp, file);
+  // A predictable "pid.tmp" opened with "w" follows attacker-supplied symlinks.
+  const tmp = `${file}.${process.pid}.${randomBytes(16).toString("hex")}.tmp`;
+  const flags = fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | (fs.constants.O_NOFOLLOW || 0);
+  const fd = fs.openSync(tmp, flags, 0o600);
+  const owner = fs.fstatSync(fd);
+  let closed = false, renamed = false;
+  try {
+    fs.writeFileSync(fd, json(state) + "\n"); fs.fsyncSync(fd);
+    fs.closeSync(fd); closed = true;
+    fs.renameSync(tmp, file); renamed = true;
+  } finally {
+    if (!closed) fs.closeSync(fd);
+    if (!renamed) {
+      try {
+        const current = fs.lstatSync(tmp);
+        if (current.isFile() && !current.isSymbolicLink() && current.dev === owner.dev && current.ino === owner.ino) fs.unlinkSync(tmp);
+      } catch (e) { if (e.code !== "ENOENT") throw e; }
+    }
+  }
   const dir = fs.openSync(path.dirname(path.resolve(file)), "r"); try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
 }
 function assertSafeFile(file, label) {

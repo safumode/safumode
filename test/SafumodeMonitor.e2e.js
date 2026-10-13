@@ -59,6 +59,21 @@ async function rejectedRunWithFaults(options, provider, out, faults) {
 }
 
 describe("SAFUMODE monitor e2e (ephemeral Hardhat chain)", function () {
+  it("does not follow a pre-planted checkpoint temp symlink", async function () {
+    const f = await fixture(30, 108);
+    const victim = path.join(f.dir, "unrelated-secret.txt");
+    fs.writeFileSync(victim, "DO NOT MODIFY\n");
+    const planted = `${f.checkpoint}.${process.pid}.tmp`;
+    fs.symlinkSync(victim, planted);
+    try {
+      await new Monitor(f.options, ethers.provider, new Capture()).run();
+      expect(fs.readFileSync(victim, "utf8")).to.equal("DO NOT MODIFY\n");
+      expect(fs.lstatSync(planted).isSymbolicLink()).to.equal(true);
+      expect(fs.lstatSync(f.checkpoint).isFile()).to.equal(true);
+      expect(fs.readdirSync(f.dir).filter((name) => name.endsWith(".tmp"))).to.deep.equal([path.basename(planted)]);
+    } finally { fs.rmSync(f.dir, { recursive: true, force: true }); }
+  });
+
   it("allows only one monitor owner for a checkpoint fileset", async function () {
     const f = await fixture(31, 106);
     let unblock;
