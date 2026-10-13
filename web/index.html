@@ -9,6 +9,8 @@
   <link rel="icon" href="safumode-mark.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="styles.css?v=story-1" />
   <link rel="stylesheet" href="hero.css?v=schematic-4" />
+  <link rel="stylesheet" href="home-extras.css?v=1" />
+  <script src="home-demo.js?v=1" defer></script>
   <script src="ethers.min.js?v=6.17.0"></script>
   <script src="app.js?v=7" defer></script>
 </head>
@@ -28,7 +30,7 @@
         <p class="overline"><span></span>BNB Chain · read-only research</p>
         <h1>Your daily wallet<br>can’t empty<br><em>your vault.</em></h1>
         <p class="hero-lede">SAFUMODE separates the wallet you use every day from the key that approves withdrawals. If your daily wallet is compromised, it cannot take funds from the vault by itself. A separate key must approve the exit.</p>
-        <div class="hero-links"><a class="button" href="/how-it-works/">See how it works <span>↗</span></a><a class="text-link" href="#prototype">Explore the read-only tool</a></div>
+        <div class="hero-links"><a class="button" href="#try-the-rules">Try the vault rules <span>↘</span></a><a class="text-link" href="/how-it-works/">See how it works</a></div>
       </div>
       <figure class="hero-schematic" role="img" aria-label="Concept illustration: a daily wallet can put funds into the vault, but a separate withdrawal key must approve funds leaving it. The website is read-only.">
         <div class="schematic-heading"><span>01 — THE AUTHORITY SPLIT</span><span>CONCEPT / NOT LIVE</span></div>
@@ -70,6 +72,29 @@
       <a href="/how-it-works/"><span>01 / UNDERSTAND THE FLOW</span><h2>How it works</h2><p>Follow a deposit, a blocked attempt, and the separate-key approval that can release funds.</p><strong>Explore the walkthrough ↗</strong></a>
       <a href="/security/"><span>02 / KNOW THE EDGES</span><h2>Security & limits</h2><p>What happens if a wallet is stolen, an authority key is compromised, or recovery fails?</p><strong>Read the boundaries ↗</strong></a>
     </section>
+
+    <section class="home-lab" id="try-the-rules" aria-labelledby="lab-title">
+      <div class="lab-heading"><div><p class="lab-eyebrow">A ONE-MINUTE PRACTICE RUN · NO WALLET NEEDED</p><h2 id="lab-title">Who is trying to<br><em>take the money out?</em></h2></div><p>Pick an attempt. Watch which rule the vault applies. These are illustrations of the contract, not real transactions or a playable vault.</p></div>
+      <div class="lab-frame" data-home-demo data-result="blocked">
+        <div class="lab-frame-top"><span>SAFUMODE / DECISION TABLE</span><span>ILLUSTRATION ONLY</span></div>
+        <div class="lab-options" role="group" aria-label="Choose a withdrawal attempt">
+          <button type="button" data-demo-option="daily" aria-pressed="true"><small>01 / WRONG KEY</small><strong>Daily wallet tries to withdraw</strong></button>
+          <button type="button" data-demo-option="trusted" aria-pressed="false"><small>02 / TRUSTED</small><strong>Separate key signs for a trusted address</strong></button>
+          <button type="button" data-demo-option="new" aria-pressed="false"><small>03 / NEW ADDRESS</small><strong>Separate key signs for a new address</strong></button>
+          <button type="button" data-demo-option="recovery" aria-pressed="false"><small>04 / EMERGENCY</small><strong>Recovery key signs an exit</strong></button>
+        </div>
+        <div class="lab-display" aria-live="polite">
+          <div class="lab-node"><small>WHO ASKS?</small><strong data-demo-actor>Daily wallet</strong><span data-demo-authority>No withdrawal authority</span></div>
+          <div class="lab-line" aria-hidden="true"><span></span></div>
+          <div class="lab-center"><small>VAULT CHECK</small><div class="lab-lock" aria-hidden="true"><span></span></div><b data-demo-check>WRONG KEY</b></div>
+          <div class="lab-line" aria-hidden="true"><span></span></div>
+          <div class="lab-node lab-target"><small>WHERE TO?</small><strong data-demo-destination>Any address</strong><span data-demo-destination-note>Doesn't matter: no valid signature</span></div>
+        </div>
+        <div class="lab-verdict" aria-live="polite"><span data-demo-verdict>BLOCKED</span><p data-demo-explanation>Putting money in does not give your daily wallet permission to take it out. A thief with only that wallet hits the same wall.</p></div>
+      </div>
+      <div class="lab-after"><p><strong>The simple rule:</strong> the wallet that deposits is not automatically the key that withdraws. A valid key still has to follow the destination rules. These exit examples assume the vault is not paused and the asset supports an exact transfer.</p><a href="/how-it-works/">Follow the full withdrawal ↗</a></div>
+    </section>
+    <section class="home-answers" aria-labelledby="answers-title"><div class="answers-heading"><p class="section-label">THE QUESTIONS THAT MATTER</p><h2 id="answers-title">Before you trust a lockbox.</h2><p>No fine print scavenger hunt. Here are the tradeoffs in ordinary language.</p></div><div class="answers-list"><details><summary>Can I get money out whenever I want?</summary><p>Only with the separate authorizer’s valid signature. A recipient already approved by both authorities can receive funds immediately. A new recipient must wait the delay chosen when that vault was created.</p></details><details><summary>What happens if I lose a key?</summary><p>There is no customer-support reset. A surviving key may still have a limited exit path while unpaused, but if the vault is paused and either authority key is permanently lost, it cannot be resumed or rotated. <a href="/security/">See the key-loss cases ↗</a></p></details><details><summary>Can I deposit any token?</summary><p>A deposit succeeding does not mean a token can be withdrawn. The vault requires an exact transfer on the way out; tokens with transfer fees, rebasing, freezes, or unusual behavior may be stranded. Test token behavior before trusting it.</p></details><details><summary>Can I use this site to make a vault?</summary><p>No. The public site only illustrates the rules and offers a read-only inspector. There is no endorsed public vault deployment, browser signing, or deposit flow here.</p></details></div></section>
 
     <section class="prototype section" id="prototype">
       <div class="prototype-intro"><div class="section-label">READ-ONLY RESEARCH TOOL</div><h2>Inspect, don’t act.</h2><p>Enter a vault address to inspect reported chain data. The site compares it with a built-in reference list; it does not sign transactions, create a vault, or move funds. A network provider can misreport data, so verify independently.</p></div>
