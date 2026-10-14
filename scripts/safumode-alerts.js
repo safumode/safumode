@@ -4,6 +4,7 @@
 // Offline operator tool. It never opens an RPC connection and never modifies the journal.
 const fs = require("fs");
 const path = require("path");
+const { randomBytes } = require("crypto");
 const { getAddress } = require("ethers");
 
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
@@ -128,19 +129,26 @@ function atomicSave(file, state) {
   const dirName = path.dirname(path.resolve(file));
   fs.mkdirSync(dirName, { recursive: true, mode: 0o700 });
   safeRegular(file, "acknowledgement file", false);
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  const tmp = `${file}.${process.pid}.${randomBytes(16).toString("hex")}.tmp`;
   const nofollow = fs.constants.O_NOFOLLOW || 0;
-  let fd;
+  let fd, owner, renamed = false;
   try {
     fd = fs.openSync(tmp, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | nofollow, 0o600);
+    owner = fs.fstatSync(fd);
     fs.writeFileSync(fd, json(state) + "\n");
     fs.fsyncSync(fd);
     fs.closeSync(fd); fd = undefined;
-    fs.renameSync(tmp, file);
+    fs.renameSync(tmp, file); renamed = true;
     const dir = fs.openSync(dirName, "r"); try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
   } finally {
     if (fd !== undefined) fs.closeSync(fd);
-    try { fs.unlinkSync(tmp); } catch (error) { if (error.code !== "ENOENT") throw error; }
+    // Never remove a pre-existing collision or a temp path swapped after opening.
+    if (owner && !renamed) {
+      try {
+        const current = fs.lstatSync(tmp);
+        if (current.isFile() && !current.isSymbolicLink() && current.dev === owner.dev && current.ino === owner.ino) fs.unlinkSync(tmp);
+      } catch (error) { if (error.code !== "ENOENT") throw error; }
+    }
   }
 }
 

@@ -81,6 +81,25 @@ describe("SAFUMODE offline alert journal CLI", function () {
     } finally { fs.rmSync(f.dir, { recursive: true, force: true }); }
   });
 
+  it("does not delete a pre-existing temp file when exclusive creation collides", function () {
+    const f = fixture();
+    const originalOpen = fs.openSync;
+    let collided;
+    try {
+      fs.openSync = function (file, ...args) {
+        if (typeof file === "string" && file.startsWith(`${f.acks}.`) && file.endsWith(".tmp")) {
+          collided = file;
+          const plantedFd = originalOpen.call(fs, file, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY, 0o600);
+          try { fs.writeFileSync(plantedFd, "OTHER OWNER\n"); } finally { fs.closeSync(plantedFd); }
+        }
+        return originalOpen.call(fs, file, ...args);
+      };
+      expect(() => acknowledge({ ...f.base, id: "alert-1" })).to.throw(/EEXIST/);
+      expect(fs.readFileSync(collided, "utf8")).to.equal("OTHER OWNER\n");
+      expect(fs.existsSync(f.acks)).to.equal(false);
+    } finally { fs.openSync = originalOpen; fs.rmSync(f.dir, { recursive: true, force: true }); }
+  });
+
   it("fails closed on lock contention and preserves distinct acknowledgements", function () {
     const f = fixture();
     try {
